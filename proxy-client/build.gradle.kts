@@ -1,0 +1,47 @@
+import org.gradle.internal.os.OperatingSystem
+
+plugins {
+    alias(libs.plugins.kotlin.jvm)
+    application
+    alias(libs.plugins.beryx.runtime)
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation(platform(libs.kotlin.bom))
+    implementation(libs.kotlin.stdlib)
+    implementation(libs.kotlin.reflect)
+
+    implementation(libs.kotlinx.cli)
+    implementation(libs.kotlinx.coroutines.core)
+
+    implementation(project(":commons"))
+    implementation(libs.bundles.log4j)
+}
+
+group = "com.icuxika"
+version = libs.versions.project.version.get()
+
+application {
+    application.applicationName = "ProxyClient"
+    mainClass.set("com.icuxika.vturbo.client.AppKt")
+    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8")
+}
+
+runtime {
+    options.set(listOf("--strip-debug", "--compress", "2", "--no-header-files", "--no-man-pages"))
+    launcher {
+        noConsole = false
+    }
+
+    val currentOS = OperatingSystem.current()
+    jpackage {
+        imageName = application.applicationName
+        if (currentOS.isWindows) {
+            imageOptions.addAll(listOf("--win-console"))
+        }
+    }
+}

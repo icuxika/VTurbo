@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="warn" strict="true" name="XMLConfigTest">
+    <Properties>
+        <Property name="filename">build/application.log</Property>
+    </Properties>
+
+    <Appenders>
+        <Appender type="Console" name="STDOUT">
+            <Layout type="PatternLayout">
+                <Pattern>%highlight{[%5p]:%d{yyyy-MM-dd HH:mm:ss,SSS} %t [%10F:%4L] -- %m%n}</Pattern>
+            </Layout>
+        </Appender>
+
+        <Appender type="File" name="File" fileName="${filename}">
+            <Layout type="PatternLayout">
+                <Pattern>[%5p]:%d{yyyy-MM-dd HH:mm:ss,SSS} %t [%10F:%4L] -- %m%n</Pattern>
+            </Layout>
+            <Filters>
+                <Filter type="ThresholdFilter" level="info"/>
+            </Filters>
+        </Appender>
+    </Appenders>
+
+    <Loggers>
+        <Root level="trace">
+            <AppenderRef ref="STDOUT"/>
+            <AppenderRef ref="File"/>
+        </Root>
+    </Loggers>
+
+</Configuration>

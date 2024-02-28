@@ -10,5 +10,6 @@ fun main(args: Array<String>) {
     parser.parse(args)
 
     val proxyClient = ProxyClient()
+//    proxyClient.launchServer(port)
     proxyClient.test()
 }

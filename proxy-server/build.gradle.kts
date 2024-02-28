@@ -28,7 +28,7 @@ version = libs.versions.project.version.get()
 application {
     applicationName = "ProxyServer"
     mainClass.set("com.icuxika.vturbo.server.AppKt")
-    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8")
+    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8", "-Dkotlinx.coroutines.debug")
 }
 
 runtime {

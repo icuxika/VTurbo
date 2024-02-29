@@ -150,7 +150,7 @@ class ManageableAppRequest(
                 onConnectionSuccess(this@ManageableAppRequest)
                 LOGGER.info("客户端[$clientId]管理的App[$appId]与目标服务器[$remoteAddress:$remotePort]建立连接成功")
 
-                val buffer = ByteArray(1024)
+                val buffer = ByteArray(128)
                 var bytesRead: Int
                 remoteSocket.getInputStream().use { remoteInput ->
                     while (true) {

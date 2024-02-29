@@ -113,7 +113,7 @@ class AppRequestContextHolder(
             )
 
             // 转发app的请求数据到代理服务端
-            val buffer = ByteArray(1024)
+            val buffer = ByteArray(128)
             var bytesRead: Int
             while (true) {
                 try {

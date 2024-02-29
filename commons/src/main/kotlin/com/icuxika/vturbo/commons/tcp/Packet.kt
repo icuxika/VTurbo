@@ -1,5 +1,6 @@
 package com.icuxika.vturbo.commons.tcp
 
+import com.icuxika.vturbo.commons.encrypt.EncryptionUtil
 import org.slf4j.Logger
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -36,11 +37,20 @@ data class Packet(val appId: Int, val instructionId: Int, val length: Int, val d
  * 将[Packet]的数据输出为[ByteArray]
  */
 fun Packet.toByteArray(): ByteArray {
-    val byteBuffer = ByteBuffer.allocate(Int.SIZE_BYTES * 3 + data.size)
+    if (length == 0) {
+        val byteBuffer = ByteBuffer.allocate(Int.SIZE_BYTES * 3 + data.size)
+        byteBuffer.putInt(appId)
+        byteBuffer.putInt(instructionId)
+        byteBuffer.putInt(length)
+        byteBuffer.put(data)
+        return byteBuffer.array()
+    }
+    val encryptedData = EncryptionUtil.encryptionOnPublicRSA.encrypt(data)
+    val byteBuffer = ByteBuffer.allocate(Int.SIZE_BYTES * 3 + encryptedData.size)
     byteBuffer.putInt(appId)
     byteBuffer.putInt(instructionId)
-    byteBuffer.putInt(length)
-    byteBuffer.put(data)
+    byteBuffer.putInt(encryptedData.size)
+    byteBuffer.put(encryptedData)
     return byteBuffer.array()
 }
 
@@ -80,6 +90,10 @@ fun InputStream.readCompletePacket(logger: Logger): Packet? {
     val instructionId = buffer.getInt()
     val length = buffer.getInt()
 
+    if (length == 0) {
+        return Packet(appId, instructionId, length, byteArrayOf())
+    }
+
     // 读取数据部分
     val dataBuffer = ByteBuffer.allocate(length)
     totalBytesRead = 0
@@ -90,5 +104,8 @@ fun InputStream.readCompletePacket(logger: Logger): Packet? {
         }
         totalBytesRead += bytesRead
     }
-    return Packet(appId, instructionId, length, dataBuffer.array())
+
+    val encryptedData = dataBuffer.array()
+    val data = EncryptionUtil.encryptionOnPublicRSA.decrypt(encryptedData)
+    return Packet(appId, instructionId, data.size, data)
 }

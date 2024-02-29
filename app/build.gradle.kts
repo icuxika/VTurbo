@@ -1,9 +1,5 @@
-import org.gradle.api.tasks.testing.logging.TestLogEvent.PASSED
-import org.gradle.api.tasks.testing.logging.TestLogEvent.SKIPPED
-import org.gradle.api.tasks.testing.logging.TestLogEvent.FAILED
-import org.gradle.api.tasks.testing.logging.TestLogEvent.STANDARD_OUT
-import org.gradle.api.tasks.testing.logging.TestLogEvent.STANDARD_ERROR
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+import org.gradle.api.tasks.testing.logging.TestLogEvent.*
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -21,6 +17,7 @@ dependencies {
     implementation(libs.kotlin.reflect)
     implementation(libs.kotlin.test.junit5)
 
+    implementation(project(":commons"))
     implementation(libs.kotlinx.cli)
 }
 

@@ -8,6 +8,8 @@ kotlinx-coroutines-core-version = "1.8.0"
 slf4j2-version = "2.0.9"
 log4j-version = "2.23.0"
 
+bcprov-jdk18on-version = "1.77"
+
 plugin-kotlin-jvm-version = "1.9.10"
 plugin-beryx-runtime-version = "1.13.1"
 
@@ -27,6 +29,9 @@ slf4j2-api = { group = "org.slf4j", name = "slf4j-api", version.ref = "slf4j2-ve
 log4j-api = { group = "org.apache.logging.log4j", name = "log4j-api", version.ref = "log4j-version" }
 log4j-core = { group = "org.apache.logging.log4j", name = "log4j-core", version.ref = "log4j-version" }
 log4j-slf4j2-impl = { group = "org.apache.logging.log4j", name = "log4j-slf4j2-impl", version.ref = "log4j-version" }
+
+# rsa
+bcprov-jdk18on = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bcprov-jdk18on-version" }
 
 [bundles]
 log4j = ["log4j-api", "log4j-core", "log4j-slf4j2-impl"]

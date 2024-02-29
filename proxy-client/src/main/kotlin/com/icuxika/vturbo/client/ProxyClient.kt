@@ -1,7 +1,10 @@
 package com.icuxika.vturbo.client
 
 import com.icuxika.vturbo.commons.extensions.logger
-import com.icuxika.vturbo.commons.tcp.*
+import com.icuxika.vturbo.commons.tcp.Packet
+import com.icuxika.vturbo.commons.tcp.ProxyInstruction
+import com.icuxika.vturbo.commons.tcp.readCompletePacket
+import com.icuxika.vturbo.commons.tcp.toByteArray
 import kotlinx.coroutines.*
 import java.net.ServerSocket
 import java.net.Socket
@@ -55,32 +58,35 @@ class ProxyClient {
             )
             remoteOutput.flush()
 
-            val buffer = ByteArray(1024)
-            val bytesRead: Int = remoteInput.read(buffer)
-            if (bytesRead != 12) {
-                LOGGER.error("代理服务端返回的数据长度错误")
-                return@runBlocking
-            }
-            val responsePacket = buffer.sliceArray(0 until bytesRead).toPacket()
-            if (responsePacket.instructionId != ProxyInstruction.CONNECT.instructionId) {
-                LOGGER.error("与目标服务器的连接建立失败")
-                return@runBlocking
-            }
+            val responsePacket = remoteInput.readCompletePacket(LOGGER)
+            responsePacket?.let { packet ->
+                if (packet.instructionId != ProxyInstruction.CONNECT.instructionId) {
+                    LOGGER.error("与目标服务器的连接建立失败")
+                    return@runBlocking
+                }
 
-            // 对于socks部分，此处应响应连接成功
+                // 对于socks部分，此处应响应连接成功
 
-            val text = "GET /baidu.html HTTP/1.1\r\nHost: www.baidu.com\r\nConnection: Close\r\n\r\n"
-            val textBytes = text.toByteArray()
-            LOGGER.info("size->${textBytes.size}")
+                val text = "GET /baidu.html HTTP/1.1\r\nHost: www.baidu.com\r\nConnection: Close\r\n\r\n"
+                val textBytes = text.toByteArray()
+                LOGGER.info("size->${textBytes.size}")
 
-            remoteOutput.write(Packet(1, ProxyInstruction.SEND.instructionId, textBytes.size, textBytes).toByteArray())
-            remoteOutput.flush()
+                remoteOutput.write(
+                    Packet(
+                        1,
+                        ProxyInstruction.SEND.instructionId,
+                        textBytes.size,
+                        textBytes
+                    ).toByteArray()
+                )
+                remoteOutput.flush()
 
-            var isFirst = true
-            while (true) {
-                remoteInput.readCompletePacket(LOGGER)?.let { packet ->
-                    LOGGER.info((if (isFirst) "\n" else "") + String(packet.data))
-                    if (isFirst) isFirst = false
+                var isFirst = true
+                while (true) {
+                    remoteInput.readCompletePacket(LOGGER)?.let { packet ->
+                        LOGGER.info((if (isFirst) "\n" else "") + String(packet.data))
+                        if (isFirst) isFirst = false
+                    }
                 }
             }
         }

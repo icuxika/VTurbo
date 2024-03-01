@@ -28,7 +28,7 @@ version = libs.versions.project.version.get()
 application {
     applicationName = "ProxyServer"
     mainClass.set("com.icuxika.vturbo.server.AppKt")
-    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8", "-Dkotlinx.coroutines.debug")
+    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8", "-Dkotlinx.coroutines.debug", "-Dkeys.path=../keys/")
 }
 
 runtime {
@@ -40,6 +40,8 @@ runtime {
     val currentOS = OperatingSystem.current()
     jpackage {
         imageName = application.applicationName
+        appVersion = version.toString()
+        jvmArgs = listOf("-Dfile.encoding=UTF-8", "-Dkeys.path=keys/")
         if (currentOS.isWindows) {
             imageOptions.addAll(listOf("--win-console"))
         }

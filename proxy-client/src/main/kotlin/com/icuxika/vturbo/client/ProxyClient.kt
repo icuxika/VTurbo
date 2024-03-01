@@ -22,9 +22,9 @@ class ProxyClient {
     private lateinit var serverSocket: ServerSocket
     private val appIdGenerator = AtomicInteger(0)
 
-    fun launchServer(port: Int) {
+    fun launchServer(port: Int, proxyServerAddress: String) {
         LOGGER.info("服务监听端口->$port")
-        val proxyServerManager = ProxyServerManager()
+        val proxyServerManager = ProxyServerManager(proxyServerAddress)
         serverSocket = ServerSocket(port)
         while (true) {
             val client = serverSocket.accept()

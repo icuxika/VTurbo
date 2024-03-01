@@ -8,7 +8,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 
-class ProxyServerManager {
+class ProxyServerManager(private val proxyServerAddress: String) {
     private val supervisor = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.IO + supervisor + CoroutineName("ProxyServerManager"))
     private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
@@ -23,7 +23,9 @@ class ProxyServerManager {
     init {
         proxyServerSocket = Socket()
         try {
-            proxyServerSocket.connect(InetSocketAddress("127.0.0.1", 8882))
+            val (proxyServerHostname, proxyServerPort) = proxyServerAddress.split(":")
+            LOGGER.info("代理服务器地址->$proxyServerHostname:$proxyServerPort")
+            proxyServerSocket.connect(InetSocketAddress(proxyServerHostname, proxyServerPort.toInt()))
             LOGGER.info("与代理服务器建立连接成功")
 
             scope.launch(exceptionHandler) {

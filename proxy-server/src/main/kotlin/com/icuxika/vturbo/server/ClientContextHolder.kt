@@ -78,7 +78,6 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
                             }
 
                             ProxyInstruction.SEND.instructionId -> {
-                                LOGGER.info("[$clientId][$appId]转发数据长度->$length")
                                 manageableAppRequestMap[key(clientId, appId)]?.sendRequestData(data)
                             }
 
@@ -157,7 +156,6 @@ class ManageableAppRequest(
                         try {
                             bytesRead = remoteInput.read(buffer)
                             if (bytesRead != -1) {
-                                LOGGER.info("发送到代理客户端的数据长度->$bytesRead")
                                 clientOutput.write(
                                     Packet(
                                         appId,

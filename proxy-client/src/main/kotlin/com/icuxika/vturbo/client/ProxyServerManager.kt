@@ -33,7 +33,6 @@ class ProxyServerManager {
                             val appId = packet.appId
                             val instructionId = packet.instructionId
                             val length = packet.length
-                            LOGGER.info("收到服务端消息，消息类型->$instructionId")
                             val data = packet.data
                             when (instructionId) {
                                 ProxyInstruction.CONNECT.instructionId -> {
@@ -41,7 +40,6 @@ class ProxyServerManager {
                                 }
 
                                 ProxyInstruction.SEND.instructionId -> {
-                                    LOGGER.info("代理服务端转发过来的数据长度->$length")
                                     appRequestMap[appId]?.sendRequestDataToApp(data)
                                 }
 

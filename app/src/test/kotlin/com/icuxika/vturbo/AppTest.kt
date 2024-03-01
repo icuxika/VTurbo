@@ -16,10 +16,19 @@ class AppTest {
     @Test
     fun encryptionOnRSA() {
         val text = "Hello, world!"
-        val encryptionAlgorithm = EncryptionAlgorithm.RSA_PRIVATE_ENC
-        val encryption = EncryptionFactory.createEncryptionAlgorithm(encryptionAlgorithm)
+        val encryption = EncryptionFactory.createEncryptionAlgorithm(EncryptionAlgorithm.RSA_PRIVATE_ENC)
+        val encryptedData = encryption.encrypt(text.toByteArray())
+        val decryptedData = encryption.decrypt(encryptedData)
+        println(String(decryptedData))
+    }
+
+    @Test
+    fun encryptionOnAES() {
+        val text = "Hello, world!"
+        val encryption = EncryptionFactory.createEncryptionAlgorithm(EncryptionAlgorithm.AES)
         val encryptedData = encryption.encrypt(text.toByteArray())
         val decryptedData = encryption.decrypt(encryptedData)
         println(String(decryptedData))
     }
 }
+

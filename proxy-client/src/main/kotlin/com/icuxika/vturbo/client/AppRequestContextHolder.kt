@@ -119,7 +119,6 @@ class AppRequestContextHolder(
                 try {
                     bytesRead = clientInput.read(buffer)
                     if (bytesRead != -1) {
-                        LOGGER.info(String(buffer.sliceArray(0 until bytesRead)))
                         sendRequestDataToProxyServer(
                             Packet(
                                 appId,

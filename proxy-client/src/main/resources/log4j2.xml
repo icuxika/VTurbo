@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="warn" strict="true" name="XMLConfigTest">
     <Properties>
-        <Property name="filename">build/application.log</Property>
+        <Property name="filename">logs/proxy-client.log</Property>
     </Properties>
 
     <Appenders>

@@ -87,7 +87,8 @@ class AppRequestContextHolder(
             proxyServerManager.registerAppRequest(this@AppRequestContextHolder)
 
             // 发送目标服务器信息到代理服务器
-            sendRequestDataToProxyServer(
+            val result = sendRequestDataToProxyServer(
+                appId,
                 Packet(
                     appId,
                     ProxyInstruction.CONNECT.instructionId,
@@ -95,9 +96,25 @@ class AppRequestContextHolder(
                     remoteAddressBytes + remotePortBytes
                 ).toByteArray()
             )
+            if (!result) {
+                // 向代理服务器转发请求数据失败
+                proxyServerManager.unregisterAppRequest(this@AppRequestContextHolder)
+                sendRequestDataToApp(
+                    byteArrayOf(
+                        0x05, //版本号
+                        0x01, // 代理服务器故障
+                        0x00,
+                        remoteAddressType.toByte(),
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+                    )
+                )
+            }
         }
     }
 
+    /**
+     * 代理服务器能够与目标服务器建立连接，通知app，开启死循环转发app的请求数据到代理服务器
+     */
     fun afterHandshake() {
         scope.launch(exceptionHandler) {
             LOGGER.info("与目标服务器成功建立连接，通过Socks 5协议通知app")
@@ -105,7 +122,7 @@ class AppRequestContextHolder(
             sendRequestDataToApp(
                 byteArrayOf(
                     0x05, //版本号
-                    0x00, //响应码：成功
+                    0x00, //代理服务器连接目标服务器成功
                     0x00,
                     remoteAddressType.toByte(),
                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
@@ -120,6 +137,7 @@ class AppRequestContextHolder(
                     bytesRead = clientInput.read(buffer)
                     if (bytesRead != -1) {
                         sendRequestDataToProxyServer(
+                            appId,
                             Packet(
                                 appId,
                                 ProxyInstruction.SEND.instructionId,
@@ -129,6 +147,7 @@ class AppRequestContextHolder(
                         )
                     }
                 } catch (e: IOException) {
+                    LOGGER.error("转发app[$appId]的请求数据到代理服务器时发生错误->${e.message}")
                     break
                 }
             }
@@ -138,8 +157,8 @@ class AppRequestContextHolder(
     /**
      * 发送数据到代理服务器
      */
-    private suspend fun sendRequestDataToProxyServer(data: ByteArray) {
-        proxyServerManager.sendRequestDataToProxyServer(data)
+    private suspend fun sendRequestDataToProxyServer(appId: Int, data: ByteArray): Boolean {
+        return proxyServerManager.sendRequestDataToProxyServer(appId, data)
     }
 
     /**
@@ -147,6 +166,13 @@ class AppRequestContextHolder(
      */
     fun sendRequestDataToApp(data: ByteArray) {
         clientOutput.write(data)
+    }
+
+    /**
+     * 关闭和app之间Socket连接
+     */
+    fun closeAppSocket() {
+        client.close()
     }
 
     companion object {

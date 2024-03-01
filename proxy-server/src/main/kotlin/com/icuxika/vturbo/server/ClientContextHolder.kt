@@ -22,13 +22,6 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
 
     private val supervisor = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.IO + supervisor + CoroutineName("client:$clientId"))
-    private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
-        exception.printStackTrace()
-        ProxyServer.LOGGER.error("协程运行时捕获到异常 $exception")
-    }
-
-    private val clientInput = client.getInputStream()
-    private val clientOutput = client.getOutputStream()
 
     /**
      * clientId:appId -> appRequest
@@ -46,10 +39,10 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
      * 开启请求代理
      */
     fun startRequestProxy() {
-        scope.launch(exceptionHandler) {
+        scope.launch {
             while (true) {
                 try {
-                    clientInput.readCompletePacket(LOGGER)?.let { packet ->
+                    client.getInputStream().readCompletePacket(LOGGER)?.let { packet ->
                         // 此时读取到了一个完整的Packet
                         val appId = packet.appId
                         val instructionId = packet.instructionId
@@ -98,9 +91,15 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
                         }
                     }
                 } catch (e: Exception) {
-                    LOGGER.warn("代理客户端与代理服务端之间的连接出现了问题")
-                    e.printStackTrace()
+                    LOGGER.error("代理客户端[$clientId]与代理服务端之间的连接出现了问题->${e.message}")
                     client.close()
+                    // 关闭客户端下的所有app与目标服务器的连接
+                    manageableAppRequestMap.forEach { (k, v) ->
+                        val (clientId0, _) = k.split(":")
+                        if (clientId0.toInt() == clientId) {
+                            v.closeRemoteSocket()
+                        }
+                    }
                     break
                 }
             }
@@ -109,7 +108,9 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
 
     private suspend fun sendRequestDataToProxyClient(data: ByteArray) {
         mutex.withLock {
-            clientOutput.write(data)
+            if (!client.isClosed) {
+                client.getOutputStream().write(data)
+            }
         }
     }
 
@@ -131,11 +132,6 @@ class ManageableAppRequest(
     private val onConnectionSuccess: (manageableAppRequest: ManageableAppRequest) -> Unit,
     private val onError: () -> Unit
 ) {
-    private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
-        exception.printStackTrace()
-        ProxyServer.LOGGER.error("协程运行时捕获到异常 $exception")
-    }
-
     private lateinit var remoteSocket: Socket
 
     init {
@@ -144,7 +140,7 @@ class ManageableAppRequest(
     }
 
     private fun startRequestProxy() {
-        scope.launch(exceptionHandler) {
+        scope.launch {
             remoteSocket = Socket()
             try {
                 remoteSocket.connect(InetSocketAddress(remoteAddress, remotePort.toInt()))
@@ -162,10 +158,10 @@ class ManageableAppRequest(
 
                 val buffer = ByteArray(128)
                 var bytesRead: Int
-                remoteSocket.getInputStream().use { remoteInput ->
+                remoteSocket.use {
                     while (true) {
                         try {
-                            bytesRead = remoteInput.read(buffer)
+                            bytesRead = it.getInputStream().read(buffer)
                             if (bytesRead != -1) {
                                 sendRequestDataToProxyClient(
                                     Packet(
@@ -178,7 +174,6 @@ class ManageableAppRequest(
                             }
                         } catch (e: IOException) {
                             LOGGER.warn("客户端[$clientId]管理的App[$appId]与目标服务器[$remoteAddress:$remotePort]的连接中断")
-                            remoteSocket.close()
                             // 通知客户端有个App与目标服务器之间的连接断开
                             sendRequestDataToProxyClient(
                                 Packet(
@@ -188,6 +183,7 @@ class ManageableAppRequest(
                                     byteArrayOf()
                                 ).toByteArray()
                             )
+                            remoteSocket.close()
                             onError()
                             break
                         }
@@ -195,6 +191,15 @@ class ManageableAppRequest(
                 }
             } catch (e: Exception) {
                 LOGGER.warn("客户端[$clientId]管理的App[$appId]与目标服务器[$remoteAddress:$remotePort]建立连接失败")
+                sendRequestDataToProxyClient(
+                    Packet(
+                        appId,
+                        ProxyInstruction.DISCONNECT.instructionId,
+                        0,
+                        byteArrayOf()
+                    ).toByteArray()
+                )
+                remoteSocket.close()
                 onError()
             }
         }

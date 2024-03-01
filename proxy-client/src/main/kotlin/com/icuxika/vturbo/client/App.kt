@@ -8,12 +8,11 @@ fun main(args: Array<String>) {
     val parser = ArgParser("vturbo-client")
     val port by parser.option(ArgType.Int, shortName = "p", description = "Server port").default(8881)
     // 代理服务器的ip地址和端口
-    val proxyServerAddress by parser.option(ArgType.String, shortName = "s", description = "Proxy server address")
+    val server by parser.option(ArgType.String, shortName = "s", description = "Proxy server address")
         .default("127.0.0.1:8882")
     parser.parse(args)
 
-    println(proxyServerAddress)
     val proxyClient = ProxyClient()
-    proxyClient.launchServer(port, proxyServerAddress)
+    proxyClient.launchServer(port, server)
 //    proxyClient.test()
 }

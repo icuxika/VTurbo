@@ -4,6 +4,8 @@ import com.icuxika.vturbo.commons.extensions.logger
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.readCompletePacket
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
@@ -19,6 +21,8 @@ class ProxyServerManager(private val proxyServerAddress: String) {
     private lateinit var proxyServerSocket: Socket
 
     private val appRequestMap = ConcurrentHashMap<Int, AppRequestContextHolder>()
+
+    private val mutex = Mutex()
 
     init {
         proxyServerSocket = Socket()
@@ -58,8 +62,10 @@ class ProxyServerManager(private val proxyServerAddress: String) {
         }
     }
 
-    fun sendRequestDatToProxyServer(data: ByteArray) {
-        proxyServerSocket.getOutputStream().write(data)
+    suspend fun sendRequestDataToProxyServer(data: ByteArray) {
+        mutex.withLock {
+            proxyServerSocket.getOutputStream().write(data)
+        }
     }
 
     /**

@@ -138,8 +138,8 @@ class AppRequestContextHolder(
     /**
      * 发送数据到代理服务器
      */
-    private fun sendRequestDataToProxyServer(data: ByteArray) {
-        proxyServerManager.sendRequestDatToProxyServer(data)
+    private suspend fun sendRequestDataToProxyServer(data: ByteArray) {
+        proxyServerManager.sendRequestDataToProxyServer(data)
     }
 
     /**

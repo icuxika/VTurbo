@@ -6,8 +6,9 @@ import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.readCompletePacket
 import com.icuxika.vturbo.commons.tcp.toByteArray
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.IOException
-import java.io.OutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -34,6 +35,8 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
      */
     private val manageableAppRequestMap = ConcurrentHashMap<String, ManageableAppRequest>()
     private val key: (x: Int, y: Int) -> String = { x, y -> "$x:$y" }
+
+    private val mutex = Mutex()
 
     init {
         LOGGER.info("新客户端建立连接，id->$clientId")
@@ -63,7 +66,9 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
 
                                 ManageableAppRequest(
                                     scope,
-                                    clientOutput,
+                                    {
+                                        sendRequestDataToProxyClient(it)
+                                    },
                                     clientId,
                                     appId,
                                     remoteAddress,
@@ -102,6 +107,12 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
         }
     }
 
+    private suspend fun sendRequestDataToProxyClient(data: ByteArray) {
+        mutex.withLock {
+            clientOutput.write(data)
+        }
+    }
+
     companion object {
         val LOGGER = logger()
     }
@@ -112,7 +123,7 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
  */
 class ManageableAppRequest(
     private val scope: CoroutineScope,
-    private val clientOutput: OutputStream,
+    private val sendRequestDataToProxyClient: suspend (data: ByteArray) -> Unit,
     private val clientId: Int,
     private val appId: Int,
     private val remoteAddress: InetAddress,
@@ -138,7 +149,7 @@ class ManageableAppRequest(
             try {
                 remoteSocket.connect(InetSocketAddress(remoteAddress, remotePort.toInt()))
                 // 通知客户端连接连接成功开始转发请求数据
-                clientOutput.write(
+                sendRequestDataToProxyClient(
                     Packet(
                         appId,
                         ProxyInstruction.CONNECT.instructionId,
@@ -156,7 +167,7 @@ class ManageableAppRequest(
                         try {
                             bytesRead = remoteInput.read(buffer)
                             if (bytesRead != -1) {
-                                clientOutput.write(
+                                sendRequestDataToProxyClient(
                                     Packet(
                                         appId,
                                         ProxyInstruction.SEND.instructionId,
@@ -169,7 +180,7 @@ class ManageableAppRequest(
                             LOGGER.warn("客户端[$clientId]管理的App[$appId]与目标服务器[$remoteAddress:$remotePort]的连接中断")
                             remoteSocket.close()
                             // 通知客户端有个App与目标服务器之间的连接断开
-                            clientOutput.write(
+                            sendRequestDataToProxyClient(
                                 Packet(
                                     appId,
                                     ProxyInstruction.DISCONNECT.instructionId,

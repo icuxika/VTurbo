@@ -26,10 +26,12 @@ version = libs.versions.project.version.get()
 
 application {
     mainClass.set("com.icuxika.vturbo.app.AppKt")
+    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8", "-Dkotlinx.coroutines.debug", "-Dkeys.path=../keys/")
 }
 
 tasks.test {
     useJUnitPlatform()
+    jvmArgs = listOf("-Dfile.encoding=UTF-8", "-Dkotlinx.coroutines.debug", "-Dkeys.path=../keys/")
     testLogging {
         exceptionFormat = FULL
         showExceptions = true

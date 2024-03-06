@@ -5,13 +5,15 @@ jvm-target = "17"
 kotlinx-cli-version = "0.3.6"
 kotlinx-coroutines-core-version = "1.8.0"
 
-slf4j2-version = "2.0.9"
+slf4j2-version = "2.0.12"
 log4j-version = "2.23.0"
+logback-version = "1.5.3"
 
 bcprov-jdk18on-version = "1.77"
 
-plugin-kotlin-jvm-version = "1.9.10"
+plugin-kotlin-jvm-version = "1.9.22"
 plugin-beryx-runtime-version = "1.13.1"
+plugin-graalvm-native-version = "0.9.28"
 
 [libraries]
 # bom
@@ -26,16 +28,23 @@ kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 
 # log
 slf4j2-api = { group = "org.slf4j", name = "slf4j-api", version.ref = "slf4j2-version" }
+jul-to-slf4j = { group = "org.slf4j", name = "jul-to-slf4j", version.ref = "slf4j2-version" }
+# log - log4j
 log4j-api = { group = "org.apache.logging.log4j", name = "log4j-api", version.ref = "log4j-version" }
 log4j-core = { group = "org.apache.logging.log4j", name = "log4j-core", version.ref = "log4j-version" }
 log4j-slf4j2-impl = { group = "org.apache.logging.log4j", name = "log4j-slf4j2-impl", version.ref = "log4j-version" }
+# log - logback
+logback-classic = { group = "ch.qos.logback", name = "logback-classic", version.ref = "logback-version" }
+logback-core = { group = "ch.qos.logback", name = "logback-core", version.ref = "logback-version" }
 
 # rsa
 bcprov-jdk18on = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bcprov-jdk18on-version" }
 
 [bundles]
 log4j = ["log4j-api", "log4j-core", "log4j-slf4j2-impl"]
+logback = ["log4j-api", "logback-classic", "logback-core"]
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "plugin-kotlin-jvm-version" }
 beryx-runtime = { id = "org.beryx.runtime", version.ref = "plugin-beryx-runtime-version" }
+graalvm-native = { id = "org.graalvm.buildtools.native", version.ref = "plugin-graalvm-native-version" }

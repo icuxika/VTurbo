@@ -8,6 +8,7 @@
         <Appender type="Console" name="STDOUT">
             <Layout type="PatternLayout">
                 <Pattern>%highlight{[%5p]:%d{yyyy-MM-dd HH:mm:ss,SSS} %t [%10F:%4L] -- %m%n}</Pattern>
+                <disableAnsi>false</disableAnsi>
             </Layout>
         </Appender>
 

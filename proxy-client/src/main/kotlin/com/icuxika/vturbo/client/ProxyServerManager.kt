@@ -67,7 +67,7 @@ class ProxyServerManager(proxyServerAddress: String) {
                     }
                     // B / s
                     val transferSpeedInBytesPerSec = allBytesIn / (60000.0 / 1000.0)
-                    AppRequestContextHolder.LOGGER.info("下载速度为->${transferSpeedInBytesPerSec.toSpeed()}")
+                    LOGGER.debug("下载速度为->${transferSpeedInBytesPerSec.toSpeed()}")
                 }
             }
             // 上传速度定时器
@@ -79,7 +79,7 @@ class ProxyServerManager(proxyServerAddress: String) {
                     }
                     // B / s
                     val transferSpeedInBytesPerSec = allBytesOut / (60000.0 / 1000.0)
-                    AppRequestContextHolder.LOGGER.info("下载速度为->${transferSpeedInBytesPerSec.toSpeed()}")
+                    LOGGER.debug("下载速度为->${transferSpeedInBytesPerSec.toSpeed()}")
                 }
             }
 

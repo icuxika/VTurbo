@@ -45,7 +45,7 @@ fun Packet.toByteArray(): ByteArray {
         byteBuffer.put(data)
         return byteBuffer.array()
     }
-    val encryptedData = EncryptionUtil.rsaPublicEnc.encrypt(data)
+    val encryptedData = EncryptionUtil.aesEnc.encrypt(data)
     val byteBuffer = ByteBuffer.allocate(Int.SIZE_BYTES * 3 + encryptedData.size)
     byteBuffer.putInt(appId)
     byteBuffer.putInt(instructionId)
@@ -106,6 +106,6 @@ fun InputStream.readCompletePacket(logger: Logger): Packet? {
     }
 
     val encryptedData = dataBuffer.array()
-    val data = EncryptionUtil.rsaPublicEnc.decrypt(encryptedData)
+    val data = EncryptionUtil.aesEnc.decrypt(encryptedData)
     return Packet(appId, instructionId, data.size, data)
 }

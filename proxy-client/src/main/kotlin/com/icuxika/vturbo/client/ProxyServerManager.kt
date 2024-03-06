@@ -1,19 +1,24 @@
 package com.icuxika.vturbo.client
 
 import com.icuxika.vturbo.commons.extensions.logger
+import com.icuxika.vturbo.commons.extensions.toSpeed
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.readCompletePacket
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.concurrent.scheduleAtFixedRate
 
 /**
  * 管理与代理服务器之间的Socket链接，为app与目标服务器之间的请求数据进行转发
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ProxyServerManager(proxyServerAddress: String) {
 
     private val supervisor = SupervisorJob()
@@ -36,12 +41,47 @@ class ProxyServerManager(proxyServerAddress: String) {
 
     private val mutex = Mutex()
 
+    /**
+     * 代理服务器->代理客户端 流量统计
+     */
+    private val bytesInChannel = Channel<Int>(Channel.UNLIMITED)
+
+    /**
+     * 代理客户端->代理服务器 流量统计
+     */
+    private val bytesOutChannel = Channel<Int>(Channel.UNLIMITED)
+
     init {
         try {
             val (proxyServerHostname, proxyServerPort) = proxyServerAddress.split(":")
             LOGGER.info("代理服务器地址->$proxyServerHostname:$proxyServerPort")
             proxyServerSocket.connect(InetSocketAddress(proxyServerHostname, proxyServerPort.toInt()))
             LOGGER.info("与代理服务器建立连接成功")
+
+            // 下载速度定时器
+            Timer().scheduleAtFixedRate(10000, 60000) {
+                runBlocking {
+                    var allBytesIn = 0
+                    while (!bytesInChannel.isEmpty) {
+                        allBytesIn += bytesInChannel.receive()
+                    }
+                    // B / s
+                    val transferSpeedInBytesPerSec = allBytesIn / (60000.0 / 1000.0)
+                    AppRequestContextHolder.LOGGER.info("下载速度为->${transferSpeedInBytesPerSec.toSpeed()}")
+                }
+            }
+            // 上传速度定时器
+            Timer().scheduleAtFixedRate(10000, 60000) {
+                runBlocking {
+                    var allBytesOut = 0
+                    while (!bytesOutChannel.isEmpty) {
+                        allBytesOut += bytesOutChannel.receive()
+                    }
+                    // B / s
+                    val transferSpeedInBytesPerSec = allBytesOut / (60000.0 / 1000.0)
+                    AppRequestContextHolder.LOGGER.info("下载速度为->${transferSpeedInBytesPerSec.toSpeed()}")
+                }
+            }
 
             scope.launch(exceptionHandler) {
                 proxyServerSocket.use {
@@ -58,6 +98,7 @@ class ProxyServerManager(proxyServerAddress: String) {
 
                                 ProxyInstruction.SEND.instructionId -> {
                                     appRequestMap[appId]?.sendRequestDataToApp(data)
+                                    bytesInChannel.send(data.size)
                                 }
 
                                 ProxyInstruction.RESPONSE.instructionId -> {}
@@ -84,6 +125,7 @@ class ProxyServerManager(proxyServerAddress: String) {
         mutex.withLock {
             if (!proxyServerSocket.isClosed) {
                 proxyServerSocket.getOutputStream().write(data)
+                bytesOutChannel.send(data.size)
                 return true
             }
             LOGGER.warn("收到app[$appId]发送的请求数据，但是与代理服务器之间的连接已经关闭")

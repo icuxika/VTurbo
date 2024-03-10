@@ -26,6 +26,7 @@ class ProxyServerManager(proxyServerAddress: String) {
     private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
         proxyServerSocket.close()
         LOGGER.error("[协程]等待读取代理服务端的数据时捕获到异常->[${exception.message}]，请检查代理服务器是否还在正常运行")
+        exception.printStackTrace()
         // 已注册的app连接全部关闭
         appRequestMap.values.forEach { appRequestContextHolder ->
             appRequestContextHolder.closeAppSocket()
@@ -79,7 +80,7 @@ class ProxyServerManager(proxyServerAddress: String) {
                     }
                     // B / s
                     val transferSpeedInBytesPerSec = allBytesOut / (60000.0 / 1000.0)
-                    LOGGER.debug("下载速度为->${transferSpeedInBytesPerSec.toSpeed()}")
+                    LOGGER.debug("上传速度为->${transferSpeedInBytesPerSec.toSpeed()}")
                 }
             }
 
@@ -97,7 +98,7 @@ class ProxyServerManager(proxyServerAddress: String) {
                                 }
 
                                 ProxyInstruction.SEND.instructionId -> {
-                                    appRequestMap[appId]?.sendRequestDataToApp(data)
+                                    appRequestMap[appId]?.sendRequestDataToApp(data, AppSocketStatus.ON_FORWARDING)
                                     bytesInChannel.send(data.size)
                                 }
 
@@ -123,7 +124,7 @@ class ProxyServerManager(proxyServerAddress: String) {
      */
     suspend fun sendRequestDataToProxyServer(appId: Int, data: ByteArray): Boolean {
         mutex.withLock {
-            if (!proxyServerSocket.isClosed) {
+            if (proxyServerSocket.isConnected && !proxyServerSocket.isClosed) {
                 proxyServerSocket.getOutputStream().write(data)
                 bytesOutChannel.send(data.size)
                 return true

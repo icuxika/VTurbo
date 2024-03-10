@@ -4,9 +4,10 @@ import com.icuxika.vturbo.commons.extensions.logger
 import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.toByteArray
-import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.net.Socket
 
@@ -16,18 +17,13 @@ class AppRequestContextHolder(
     private val client: Socket,
     val appId: Int
 ) {
-    private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
-        exception.printStackTrace()
-        LOGGER.error("协程运行时捕获到异常 $exception")
-    }
-
     private val clientInput = client.getInputStream()
     private val clientOutput = client.getOutputStream()
 
     private var remoteAddressType: Int = 0
 
     fun startRequestProxy() {
-        scope.launch(exceptionHandler) {
+        scope.launch {
             // ----------Socks 5 验证----------
             // 1.app与服务器身份验证
             var socksVersion = clientInput.read()
@@ -35,7 +31,7 @@ class AppRequestContextHolder(
             val socksMethods = ByteArray(socksMethodsCount)
             clientInput.read(socksMethods)
             // 2.响应app，选择握手方式
-            sendRequestDataToApp(byteArrayOf(0x05, 0x00))
+            sendRequestDataToApp(byteArrayOf(0x05, 0x00), AppSocketStatus.ON_CONNECTING)
             // 3.app发送目标服务器的信息
             socksVersion = clientInput.read()
             val socksCommand = clientInput.read()
@@ -106,7 +102,8 @@ class AppRequestContextHolder(
                         0x00,
                         remoteAddressType.toByte(),
                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-                    )
+                    ),
+                    AppSocketStatus.ON_DISCONNECTED
                 )
             }
         }
@@ -116,8 +113,8 @@ class AppRequestContextHolder(
      * 代理服务器能够与目标服务器建立连接，通知app，开启死循环转发app的请求数据到代理服务器
      */
     fun afterHandshake() {
-        scope.launch(exceptionHandler) {
-            LOGGER.info("与目标服务器成功建立连接，通过Socks 5协议通知app")
+        scope.launch {
+            LOGGER.info("与目标服务器成功建立连接，通过Socks 5协议通知app[$appId]")
             // 与目标服务器建立连接成功，回应app
             sendRequestDataToApp(
                 byteArrayOf(
@@ -126,7 +123,8 @@ class AppRequestContextHolder(
                     0x00,
                     remoteAddressType.toByte(),
                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-                )
+                ),
+                AppSocketStatus.ON_CONNECTED
             )
 
             // 转发app的请求数据到代理服务端
@@ -147,7 +145,10 @@ class AppRequestContextHolder(
                         )
                     }
                 } catch (e: IOException) {
-                    LOGGER.error("转发app[$appId]的请求数据到代理服务器时发生错误->${e.message}")
+                    // 此处异常处理针对 InputStream.read
+                    // sendRequestDataToProxyClient 内部异常内部处理
+                    LOGGER.warn("app[$appId]关闭了Socket连接")
+                    client.close()
                     break
                 }
             }
@@ -158,21 +159,49 @@ class AppRequestContextHolder(
      * 发送数据到代理服务器
      */
     private suspend fun sendRequestDataToProxyServer(appId: Int, data: ByteArray): Boolean {
-        return proxyServerManager.sendRequestDataToProxyServer(appId, data)
+        return try {
+            proxyServerManager.sendRequestDataToProxyServer(appId, data)
+        } catch (e: Exception) {
+            LOGGER.error("转发app[$appId]的请求数据到代理服务器时发生错误[${e.message}]")
+            false
+        }
     }
 
     /**
      * 发送数据到app
      */
-    fun sendRequestDataToApp(data: ByteArray) {
-        clientOutput.write(data)
+    suspend fun sendRequestDataToApp(
+        data: ByteArray,
+        appSocketStatus: AppSocketStatus = AppSocketStatus.ON_FORWARDING
+    ) {
+        try {
+            if (client.isConnected && !client.isClosed) {
+                withContext(Dispatchers.IO) {
+                    clientOutput.write(data)
+                }
+            }
+        } catch (e: Exception) {
+            LOGGER.warn("[${appSocketStatus.status}]向app[$appId]转发请求数据时发生了错误[${e.message}]")
+            sendRequestDataToProxyServer(
+                appId, Packet(
+                    appId,
+                    ProxyInstruction.DISCONNECT.instructionId,
+                    0,
+                    byteArrayOf()
+                ).toByteArray()
+            )
+        }
     }
 
     /**
      * 关闭和app之间Socket连接
      */
     fun closeAppSocket() {
-        client.close()
+        try {
+            client.close()
+        } catch (e: Exception) {
+            LOGGER.warn("关闭app[$appId]的Socket时发生错误[${e.message}]")
+        }
     }
 
     companion object {

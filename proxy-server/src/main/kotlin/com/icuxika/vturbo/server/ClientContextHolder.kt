@@ -51,7 +51,6 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
                         when (instructionId) {
                             ProxyInstruction.CONNECT.instructionId -> {
                                 // 读取目标服务器地址和端口，Socks 5协议传递的端口占用两个字节
-                                // TODO IPv4、IPv6、域名不同格式的处理
                                 val remoteAddressBytes = data.sliceArray(0 until length - 2)
                                 val remotePortBytes = data.sliceArray(length - 2 until length)
                                 val remoteAddress = InetAddress.getByName(String(remoteAddressBytes))
@@ -91,8 +90,9 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
                         }
                     }
                 } catch (e: Exception) {
-                    LOGGER.error("代理客户端[$clientId]与代理服务端之间的连接出现了问题->${e.message}")
-                    client.close()
+                    LOGGER.error("代理客户端[$clientId]与代理服务端之间的连接出现了问题[${e.message}]")
+                    // TODO 目标服务器断开的情况没处理
+                    e.printStackTrace()
                     // 关闭客户端下的所有app与目标服务器的连接
                     manageableAppRequestMap.forEach { (k, v) ->
                         val (clientId0, _) = k.split(":")
@@ -108,8 +108,14 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
 
     private suspend fun sendRequestDataToProxyClient(data: ByteArray) {
         mutex.withLock {
-            if (!client.isClosed) {
-                client.getOutputStream().write(data)
+            try {
+                if (client.isConnected && !client.isClosed) {
+                    client.getOutputStream().write(data)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                client.close()
+                LOGGER.error("向代理客户端转发请求数据时遇到了错误[${e.message}]")
             }
         }
     }
@@ -173,7 +179,10 @@ class ManageableAppRequest(
                                 )
                             }
                         } catch (e: IOException) {
+                            // 此处异常处理针对 InputStream.read
+                            // sendRequestDataToProxyClient 内部异常内部处理
                             LOGGER.warn("客户端[$clientId]管理的App[$appId]与目标服务器[$remoteAddress:$remotePort]的连接中断")
+                            closeRemoteSocket()
                             // 通知客户端有个App与目标服务器之间的连接断开
                             sendRequestDataToProxyClient(
                                 Packet(
@@ -183,7 +192,6 @@ class ManageableAppRequest(
                                     byteArrayOf()
                                 ).toByteArray()
                             )
-                            remoteSocket.close()
                             onError()
                             break
                         }
@@ -191,15 +199,7 @@ class ManageableAppRequest(
                 }
             } catch (e: Exception) {
                 LOGGER.warn("客户端[$clientId]管理的App[$appId]与目标服务器[$remoteAddress:$remotePort]建立连接失败")
-                sendRequestDataToProxyClient(
-                    Packet(
-                        appId,
-                        ProxyInstruction.DISCONNECT.instructionId,
-                        0,
-                        byteArrayOf()
-                    ).toByteArray()
-                )
-                remoteSocket.close()
+                closeRemoteSocket()
                 onError()
             }
         }
@@ -209,14 +209,23 @@ class ManageableAppRequest(
      * 转发请求数据
      */
     fun sendRequestData(data: ByteArray) {
-        remoteSocket.getOutputStream().write(data)
+        try {
+            remoteSocket.getOutputStream().write(data)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            ClientContextHolder.LOGGER.warn("向目标服务器转发请求数据的时候遇到了错误[${e.message}]");
+        }
     }
 
     /**
      * 关闭与目标服务器的连接
      */
     fun closeRemoteSocket() {
-        remoteSocket.close()
+        try {
+            remoteSocket.close()
+        } catch (e: Exception) {
+            LOGGER.warn("关闭app[$clientId:$appId]所访问的目标服务器Socket时发生错误[${e.message}]")
+        }
     }
 
     companion object {

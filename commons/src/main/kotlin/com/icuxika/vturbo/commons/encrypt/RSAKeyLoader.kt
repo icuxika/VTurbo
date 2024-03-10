@@ -17,9 +17,9 @@ interface RSAKeyLoader {
 
 class PemRSAKeyLoader : RSAKeyLoader {
 
-    private val directory: String = System.getProperty("keys.path")
-    private val publicKeyFilePath: String = "${directory}rsa_public_key.pem"
-    private val privateKeyFilePath: String = "${directory}rsa_private_key.pem"
+    private val directory: String? = System.getProperty("keys.path")
+    private val publicKeyFilePath: String = "${directory ?: "keys/"}rsa_public_key.pem"
+    private val privateKeyFilePath: String = "${directory ?: "keys/"}rsa_private_key.pem"
 
     private val publicKey: String by lazy {
         StringBuilder().apply {

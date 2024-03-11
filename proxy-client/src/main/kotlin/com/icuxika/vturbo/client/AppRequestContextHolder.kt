@@ -21,6 +21,8 @@ class AppRequestContextHolder(
     private val clientOutput = client.getOutputStream()
 
     private var remoteAddressType: Int = 0
+    private lateinit var remoteAddressBytesForSocks5Response: ByteArray
+    private lateinit var remotePortBytes: ByteArray
 
     fun startRequestProxy() {
         scope.launch {
@@ -50,6 +52,7 @@ class AppRequestContextHolder(
                     val addressBytes = ByteArray(4)
                     clientInput.read(addressBytes)
                     remoteAddress = addressBytes.joinToString(".") { (it.toInt() and 0xFF).toString() }
+                    remoteAddressBytesForSocks5Response = addressBytes
                 }
 
                 0x03 -> {
@@ -58,6 +61,7 @@ class AppRequestContextHolder(
                     val domainBytes = ByteArray(domainLength)
                     clientInput.read(domainBytes)
                     remoteAddress = String(domainBytes)
+                    remoteAddressBytesForSocks5Response = byteArrayOf(domainLength.toByte()) + domainBytes
                 }
 
                 0x04 -> {
@@ -65,6 +69,7 @@ class AppRequestContextHolder(
                     val addressBytes = ByteArray(16)
                     clientInput.read(addressBytes)
                     remoteAddress = addressBytes.joinToString(":") { (it.toInt() and 0xFF).toString(16) }
+                    remoteAddressBytesForSocks5Response = addressBytes
                 }
 
                 else -> {
@@ -73,7 +78,7 @@ class AppRequestContextHolder(
                     return@launch
                 }
             }
-            val remotePortBytes = ByteArray(2)
+            remotePortBytes = ByteArray(2)
             clientInput.read(remotePortBytes)
             // ----------Socks 5 验证----------
 
@@ -121,9 +126,8 @@ class AppRequestContextHolder(
                     0x05, //版本号
                     0x00, //代理服务器连接目标服务器成功
                     0x00,
-                    remoteAddressType.toByte(),
-                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-                ),
+                    remoteAddressType.toByte()
+                ) + remoteAddressBytesForSocks5Response + remotePortBytes,
                 AppSocketStatus.ON_CONNECTED
             )
 

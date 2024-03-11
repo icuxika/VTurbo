@@ -2,6 +2,7 @@ package com.icuxika.vturbo.commons.tcp
 
 import com.icuxika.vturbo.commons.encrypt.EncryptionUtil
 import org.slf4j.Logger
+import java.io.DataInputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
 
@@ -70,42 +71,18 @@ fun ByteArray.toPacket(): Packet {
 /**
  * 从[InputStream]中读取一个到完整的[Packet]
  */
-fun InputStream.readCompletePacket(logger: Logger): Packet? {
-    val buffer = ByteBuffer.allocate(1024)
-    var totalBytesRead = 0
-    // 最小包大小，不包含数据
-    val baseBytesSize = Int.SIZE_BYTES * 3
-    while (totalBytesRead < baseBytesSize) {
-        val bytesRead = read(buffer.array(), totalBytesRead, baseBytesSize - totalBytesRead)
-        if (bytesRead <= 0) {
-            return null
-        }
-        totalBytesRead += bytesRead
-    }
-
-    buffer.position(totalBytesRead)
-    buffer.flip()
-
-    val appId = buffer.getInt()
-    val instructionId = buffer.getInt()
-    val length = buffer.getInt()
-
+fun InputStream.readCompletePacket(logger: Logger): Packet {
+    // TODO 当发生IO异常时候，断开对应的代理客户端与代理服务端之间的连接
+    val dataInputStream = DataInputStream(this)
+    val appId = dataInputStream.readInt()
+    val instructionId = dataInputStream.readInt()
+    val length = dataInputStream.readInt()
     if (length == 0) {
         return Packet(appId, instructionId, length, byteArrayOf())
     }
-
-    // 读取数据部分
-    val dataBuffer = ByteBuffer.allocate(length)
-    totalBytesRead = 0
-    while (totalBytesRead < length) {
-        val bytesRead = read(dataBuffer.array(), totalBytesRead, length - totalBytesRead)
-        if (bytesRead <= 0) {
-            return null
-        }
-        totalBytesRead += bytesRead
-    }
-
-    val encryptedData = dataBuffer.array()
+    val encryptedData = ByteArray(length)
+    dataInputStream.readFully(encryptedData)
     val data = EncryptionUtil.aesEnc.decrypt(encryptedData)
     return Packet(appId, instructionId, data.size, data)
 }
+

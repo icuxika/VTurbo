@@ -42,7 +42,7 @@ class ClientContextHolder(private val client: Socket, private val clientId: Int)
         scope.launch {
             while (true) {
                 try {
-                    client.getInputStream().readCompletePacket(LOGGER)?.let { packet ->
+                    client.getInputStream().readCompletePacket(LOGGER).let { packet ->
                         // 此时读取到了一个完整的Packet
                         val appId = packet.appId
                         val instructionId = packet.instructionId
@@ -168,7 +168,7 @@ class ManageableAppRequest(
                     while (true) {
                         try {
                             bytesRead = it.getInputStream().read(buffer)
-                            if (bytesRead != -1) {
+                            if (bytesRead > 0) {
                                 sendRequestDataToProxyClient(
                                     Packet(
                                         appId,
@@ -177,6 +177,8 @@ class ManageableAppRequest(
                                         buffer.sliceArray(0 until bytesRead)
                                     ).toByteArray()
                                 )
+                            } else if (bytesRead == -1) {
+                                break
                             }
                         } catch (e: IOException) {
                             // 此处异常处理针对 InputStream.read
@@ -196,6 +198,7 @@ class ManageableAppRequest(
                             break
                         }
                     }
+                    closeRemoteSocket()
                 }
             } catch (e: Exception) {
                 LOGGER.warn("客户端[$clientId]管理的App[$appId]与目标服务器[$remoteAddress:$remotePort]建立连接失败")

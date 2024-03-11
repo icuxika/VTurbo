@@ -87,7 +87,7 @@ class ProxyServerManager(proxyServerAddress: String) {
             scope.launch(exceptionHandler) {
                 proxyServerSocket.use {
                     while (true) {
-                        it.getInputStream().readCompletePacket(LOGGER)?.let { packet ->
+                        it.getInputStream().readCompletePacket(LOGGER).let { packet ->
                             val appId = packet.appId
                             val instructionId = packet.instructionId
                             val length = packet.length

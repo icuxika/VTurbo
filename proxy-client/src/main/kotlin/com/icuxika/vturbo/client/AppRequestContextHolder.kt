@@ -133,7 +133,7 @@ class AppRequestContextHolder(
             while (true) {
                 try {
                     bytesRead = clientInput.read(buffer)
-                    if (bytesRead != -1) {
+                    if (bytesRead > 0) {
                         sendRequestDataToProxyServer(
                             appId,
                             Packet(
@@ -143,6 +143,8 @@ class AppRequestContextHolder(
                                 buffer.sliceArray(0 until bytesRead)
                             ).toByteArray()
                         )
+                    } else if (bytesRead == -1) {
+                        break
                     }
                 } catch (e: IOException) {
                     // 此处异常处理针对 InputStream.read
@@ -152,6 +154,7 @@ class AppRequestContextHolder(
                     break
                 }
             }
+            closeAppSocket()
         }
     }
 

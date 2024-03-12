@@ -1,10 +1,7 @@
 package com.icuxika.vturbo.server
 
 import com.icuxika.vturbo.commons.extensions.logger
-import com.icuxika.vturbo.commons.tcp.Packet
-import com.icuxika.vturbo.commons.tcp.ProxyInstruction
-import com.icuxika.vturbo.commons.tcp.readCompletePacket
-import com.icuxika.vturbo.commons.tcp.toByteArray
+import com.icuxika.vturbo.commons.tcp.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -162,7 +159,7 @@ class ManageableAppRequest(
                 onConnectionSuccess(this@ManageableAppRequest)
                 LOGGER.info("客户端[$clientId]管理的App[$appId]与目标服务器[$remoteAddress:$remotePort]建立连接成功")
 
-                val buffer = ByteArray(1024)
+                val buffer = ByteArray(IO_READ_BUFFER_SIZE)
                 var bytesRead: Int
                 remoteSocket.use {
                     while (true) {

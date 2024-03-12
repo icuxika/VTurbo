@@ -1,6 +1,7 @@
 package com.icuxika.vturbo.client
 
 import com.icuxika.vturbo.commons.extensions.logger
+import com.icuxika.vturbo.commons.tcp.IO_READ_BUFFER_SIZE
 import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.toByteArray
@@ -132,7 +133,7 @@ class AppRequestContextHolder(
             )
 
             // 转发app的请求数据到代理服务端
-            val buffer = ByteArray(1024)
+            val buffer = ByteArray(IO_READ_BUFFER_SIZE)
             var bytesRead: Int
             while (true) {
                 try {

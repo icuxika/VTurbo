@@ -2,28 +2,27 @@
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>
-                %highlight(%-5level) %boldGreen(%d{yyyy-MM-dd HH:mm:ss.SSS}) %boldYellow([%thread]) %cyan(%logger{36}) -
-                %highlight(%msg%n)
+                %highlight(%-5level) %boldGreen(%d{yyyy-MM-dd HH:mm:ss.SSS}) %boldYellow([%thread]) %cyan([%F:%L]) - %highlight(%msg%n)
             </pattern>
         </encoder>
     </appender>
 
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>logs/proxy-server/logFile.log</file>
+        <file>logs/proxy-server.log</file>
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
             <level>INFO</level>
         </filter>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>logs/proxy-server/logFile.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <fileNamePattern>logs/rolling/proxy-server.%d{yyyy-MM-dd}.log</fileNamePattern>
             <maxHistory>30</maxHistory>
             <totalSizeCap>3GB</totalSizeCap>
         </rollingPolicy>
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{10} [%file:%line] %msg%n</pattern>
+            <pattern>%-5level %d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%F:%L] %msg%n</pattern>
         </encoder>
     </appender>
 
-    <root level="info">
+    <root level="trace">
         <appender-ref ref="STDOUT"/>
         <appender-ref ref="FILE"/>
     </root>

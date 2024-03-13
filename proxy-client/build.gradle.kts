@@ -5,6 +5,7 @@ plugins {
     application
     alias(libs.plugins.beryx.runtime)
     alias(libs.plugins.graalvm.native)
+    alias(libs.plugins.shadow)
 }
 
 repositories {
@@ -20,7 +21,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
 
     implementation(project(":commons"))
-    implementation(libs.bundles.log4j)
+    implementation(libs.bundles.logback)
 }
 
 group = "com.icuxika"
@@ -49,22 +50,13 @@ runtime {
     }
 }
 
-// .\gradlew.bat :proxy-client:nativeCompile
-// 执行命令前将 dependencies 块中的 implementation(libs.bundles.log4j) 换成 implementation(libs.bundles.logback)
-//GraalVM 构建，尚不支持Log4j，换成logback可以构建，但是没有日志输出，而Spring Initializer生成的SpringBoot项目添加logback-spring.xml然后进行native构建确实支持的，以后再尝试
 graalvmNative {
     binaries {
-        all {
-            resources.autodetect()
-        }
         named("main") {
             imageName.set(application.applicationName)
-            mainClass.set(application.mainClass)
+            buildArgs.add("--verbose")
+            buildArgs.add("--report-unsupported-elements-at-runtime")
+            buildArgs.add("--no-fallback")
         }
-    }
-    binaries.all {
-        buildArgs.add("--verbose")
-        buildArgs.add("--report-unsupported-elements-at-runtime")
-        buildArgs.add("--no-fallback")
     }
 }

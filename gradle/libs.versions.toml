@@ -14,6 +14,7 @@ bcprov-jdk18on-version = "1.77"
 plugin-kotlin-jvm-version = "1.9.22"
 plugin-beryx-runtime-version = "1.13.1"
 plugin-graalvm-native-version = "0.9.28"
+plugin-shadow-version = "8.1.1"
 
 [libraries]
 # bom
@@ -48,3 +49,4 @@ logback = ["log4j-api", "logback-classic", "logback-core"]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "plugin-kotlin-jvm-version" }
 beryx-runtime = { id = "org.beryx.runtime", version.ref = "plugin-beryx-runtime-version" }
 graalvm-native = { id = "org.graalvm.buildtools.native", version.ref = "plugin-graalvm-native-version" }
+shadow = { id = "com.github.johnrengelman.shadow", version.ref = "plugin-shadow-version" }

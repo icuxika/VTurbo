@@ -1,5 +1,6 @@
 package com.icuxika.vturbo.client
 
+import com.icuxika.vturbo.client.server.ProxyServerManager
 import com.icuxika.vturbo.commons.extensions.logger
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -22,7 +23,7 @@ class ProxyClient {
         while (true) {
             val client = serverSocket.accept()
             val appId = appIdGenerator.getAndIncrement()
-            val appRequestContextHolder = AppRequestContextHolder(scope, proxyServerManager, client, appId)
+            val appRequestContextHolder = AppRequestContextHolder(proxyServerManager, scope, client, appId)
             appRequestContextHolder.startRequestProxy()
         }
     }

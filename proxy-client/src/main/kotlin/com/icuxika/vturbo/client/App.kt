@@ -14,5 +14,4 @@ fun main(args: Array<String>) {
 
     val proxyClient = ProxyClient()
     proxyClient.launchServer(port, server)
-//    proxyClient.test()
 }

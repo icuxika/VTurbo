@@ -1,5 +1,8 @@
-package com.icuxika.vturbo.client
+package com.icuxika.vturbo.client.server
 
+import com.icuxika.vturbo.client.AppSocketStatus
+import com.icuxika.vturbo.client.protocol.AbstractProtocolHandle
+import com.icuxika.vturbo.commons.extensions.isConnecting
 import com.icuxika.vturbo.commons.extensions.logger
 import com.icuxika.vturbo.commons.extensions.toSpeed
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
@@ -8,7 +11,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.*
@@ -19,27 +21,24 @@ import kotlin.concurrent.scheduleAtFixedRate
  * 管理与代理服务器之间的Socket链接，为app与目标服务器之间的请求数据进行转发
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class ProxyServerManager(proxyServerAddress: String) {
+class ProxyServerManager(private val proxyServerAddress: String) {
 
     private val supervisor = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.IO + supervisor + CoroutineName("ProxyServerManager"))
-    private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
-        proxyServerSocket.close()
-        LOGGER.error("[协程]等待读取代理服务端的数据时捕获到异常->[${exception.message}]，请检查代理服务器是否还在正常运行")
-        exception.printStackTrace()
-        // 已注册的app连接全部关闭
-        appRequestMap.values.forEach { appRequestContextHolder ->
-            appRequestContextHolder.closeAppSocket()
-        }
-    }
 
+    /**
+     * 代理服务器Socket
+     */
     private var proxyServerSocket: Socket = Socket()
 
     /**
      * appid <-> app socket
      */
-    private val appRequestMap = ConcurrentHashMap<Int, AppRequestContextHolder>()
+    private val protocolHandleMap = ConcurrentHashMap<Int, AbstractProtocolHandle>()
 
+    /**
+     * lock 同一时间只有一个app的Packet可以写入代理服务器的outputStream
+     */
     private val mutex = Mutex()
 
     /**
@@ -53,7 +52,7 @@ class ProxyServerManager(proxyServerAddress: String) {
     private val bytesOutChannel = Channel<Int>(Channel.UNLIMITED)
 
     init {
-        try {
+        runCatching {
             val (proxyServerHostname, proxyServerPort) = proxyServerAddress.split(":")
             LOGGER.info("代理服务器地址->$proxyServerHostname:$proxyServerPort")
             proxyServerSocket.connect(InetSocketAddress(proxyServerHostname, proxyServerPort.toInt()))
@@ -84,36 +83,45 @@ class ProxyServerManager(proxyServerAddress: String) {
                 }
             }
 
-            scope.launch(exceptionHandler) {
-                proxyServerSocket.use {
-                    while (true) {
-                        it.getInputStream().readCompletePacket(LOGGER).let { packet ->
-                            val appId = packet.appId
-                            val instructionId = packet.instructionId
-                            val length = packet.length
-                            val data = packet.data
-                            when (instructionId) {
-                                ProxyInstruction.CONNECT.instructionId -> {
-                                    appRequestMap[appId]?.afterHandshake()
-                                }
+            scope.launch {
+                runCatching {
+                    proxyServerSocket.use {
+                        while (true) {
+                            it.getInputStream().readCompletePacket(LOGGER).let { packet ->
+                                val appId = packet.appId
+                                val instructionId = packet.instructionId
+                                val length = packet.length
+                                val data = packet.data
+                                when (instructionId) {
+                                    ProxyInstruction.CONNECT.instructionId -> {
+                                        protocolHandleMap[appId]?.afterHandshake()
+                                    }
 
-                                ProxyInstruction.SEND.instructionId -> {
-                                    appRequestMap[appId]?.sendRequestDataToApp(data, AppSocketStatus.ON_FORWARDING)
-                                    bytesInChannel.send(data.size)
-                                }
+                                    ProxyInstruction.SEND.instructionId -> {
+                                        protocolHandleMap[appId]?.forwardRequestToApp(
+                                            data,
+                                            AppSocketStatus.ON_FORWARDING
+                                        )
+                                        bytesInChannel.send(data.size)
+                                    }
 
-                                ProxyInstruction.RESPONSE.instructionId -> {}
-                                ProxyInstruction.DISCONNECT.instructionId -> {
-                                    appRequestMap[appId]?.closeAppSocket()
-                                }
+                                    ProxyInstruction.RESPONSE.instructionId -> {}
+                                    ProxyInstruction.DISCONNECT.instructionId -> {
+                                        protocolHandleMap[appId]?.clean()
+                                    }
 
-                                else -> {}
+                                    else -> {}
+                                }
                             }
                         }
                     }
+                }.onFailure {
+                    LOGGER.error("等待读取代理服务端的数据时捕获到异常->[${it.message}]，请检查代理服务器是否还在正常运行")
+                    proxyServerSocket.close()
+                    protocolHandleMap.values.forEach { abstractProtocolHandle -> abstractProtocolHandle.clean() }
                 }
             }
-        } catch (e: IOException) {
+        }.onFailure {
             LOGGER.error("无法与代理服务器建立连接")
             proxyServerSocket.close()
         }
@@ -124,7 +132,7 @@ class ProxyServerManager(proxyServerAddress: String) {
      */
     suspend fun sendRequestDataToProxyServer(appId: Int, data: ByteArray): Boolean {
         mutex.withLock {
-            if (proxyServerSocket.isConnected && !proxyServerSocket.isClosed) {
+            if (proxyServerSocket.isConnecting()) {
                 proxyServerSocket.getOutputStream().write(data)
                 bytesOutChannel.send(data.size)
                 return true
@@ -135,14 +143,17 @@ class ProxyServerManager(proxyServerAddress: String) {
     }
 
     /**
-     * 确认app与要访问的目标服务器建立起链接后，注册到[ProxyServerManager.appRequestMap]中
+     * 确认app与要访问的目标服务器建立起链接后，注册到[ProxyServerManager.protocolHandleMap]中
      */
-    fun registerAppRequest(appRequestContextHolder: AppRequestContextHolder) {
-        appRequestMap[appRequestContextHolder.appId] = appRequestContextHolder
+    fun registerProtocolHandle(abstractProtocolHandle: AbstractProtocolHandle) {
+        protocolHandleMap[abstractProtocolHandle.appId] = abstractProtocolHandle
     }
 
-    fun unregisterAppRequest(appRequestContextHolder: AppRequestContextHolder) {
-        appRequestMap.remove(appRequestContextHolder.appId)
+    /**
+     * 从[ProxyServerManager.protocolHandleMap]中移除app
+     */
+    fun unregisterProtocolHandle(abstractProtocolHandle: AbstractProtocolHandle) {
+        protocolHandleMap.remove(abstractProtocolHandle.appId)
     }
 
     companion object {

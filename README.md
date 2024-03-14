@@ -78,6 +78,14 @@ native-image -H:ConfigurationFileDirectories=conf --no-fallback --static --libc=
 
 构建完成得到的`ProxyServer`上传到Linux后，需要`chmod +x ProxyServer`
 
+### Windows 通过 Dockerfile 直接运行
+
+```shell
+cd .\proxy-server\
+docker build . -t icuxika/vturbo-proxy-server:0.0.1
+docker run --rm --init -p 8883:8882 icuxika/vturbo-proxy-server:0.0.1
+```
+
 客户端
 ----------
 

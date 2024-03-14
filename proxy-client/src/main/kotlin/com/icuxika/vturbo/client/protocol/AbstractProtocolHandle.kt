@@ -6,6 +6,7 @@ import com.icuxika.vturbo.commons.extensions.isConnecting
 import com.icuxika.vturbo.commons.extensions.logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import java.net.Socket
@@ -24,9 +25,10 @@ abstract class AbstractProtocolHandle(
      * 用于接收要发送到app的数据
      */
     private val bytesToAppChannel = Channel<ByteArray>(Channel.UNLIMITED)
+    private var bytesToAppJob: Job? = null
 
     override fun beforeHandshake() {
-        scope.launch {
+        bytesToAppJob = scope.launch {
             runCatching {
                 for (data in bytesToAppChannel) {
                     if (client.isConnecting()) {
@@ -74,16 +76,22 @@ abstract class AbstractProtocolHandle(
     }
 
     override fun clean() {
+        unregisterFromProxyServerManager()
+
         runCatching {
             client.close()
         }.onFailure {
-            Socks5ProtocolHandle.LOGGER.warn("关闭app socket时发生错误[${it.message}]")
+            LOGGER.warn("关闭app socket时发生错误[${it.message}]")
         }
 
         runCatching {
             bytesToAppChannel.close()
         }.onFailure {
-            Socks5ProtocolHandle.LOGGER.warn("关闭channel时发生错误[${it.message}]")
+            LOGGER.warn("关闭channel时发生错误[${it.message}]")
+        }
+
+        runCatching {
+            bytesToAppJob?.cancel()
         }
     }
 

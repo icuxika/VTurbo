@@ -1,6 +1,7 @@
 package com.icuxika.vturbo.server
 
 import com.icuxika.vturbo.commons.extensions.logger
+import com.icuxika.vturbo.server.client.ProxyClientManager
 import java.net.ServerSocket
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -17,8 +18,7 @@ class ProxyServer {
             val client = serverSocket.accept()
             val clientId = clientIdGenerator.getAndIncrement()
 
-            val clientContextHolder = ClientContextHolder(client, clientId)
-            clientContextHolder.startRequestProxy()
+            ProxyClientManager(client, clientId).startRequestProxy()
         }
     }
 

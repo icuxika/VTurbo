@@ -139,6 +139,14 @@ open class Socks5ProtocolHandle(
                     )
                 }
                 // 请求结束
+                forwardRequestToServer(
+                    Packet(
+                        appId,
+                        ProxyInstruction.DISCONNECT.instructionId,
+                        0,
+                        byteArrayOf()
+                    ).toByteArray()
+                )
                 clean()
             }.onFailure {
                 LOGGER.warn("app[$appId]关闭了socket")

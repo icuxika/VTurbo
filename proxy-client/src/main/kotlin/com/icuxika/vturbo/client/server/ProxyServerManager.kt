@@ -1,21 +1,20 @@
 package com.icuxika.vturbo.client.server
 
-import com.icuxika.vturbo.client.AppSocketStatus
-import com.icuxika.vturbo.client.protocol.AbstractProtocolHandle
-import com.icuxika.vturbo.commons.extensions.isConnecting
+import com.icuxika.vturbo.client.protocol.NAbstractProtocolHandle
 import com.icuxika.vturbo.commons.extensions.logger
 import com.icuxika.vturbo.commons.extensions.toSpeed
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.readCompletePacket
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executors
 import kotlin.concurrent.scheduleAtFixedRate
+import kotlin.concurrent.thread
 
 /**
  * 管理与代理服务器之间的Socket链接，为app与目标服务器之间的请求数据进行转发
@@ -34,12 +33,12 @@ class ProxyServerManager(private val proxyServerAddress: String) {
     /**
      * appid <-> app socket
      */
-    private val protocolHandleMap = ConcurrentHashMap<Int, AbstractProtocolHandle>()
+    private val nProtocolHandle = ConcurrentHashMap<Int, NAbstractProtocolHandle>()
 
     /**
-     * lock 同一时间只有一个app的Packet可以写入代理服务器的outputStream
+     * 接收app的请求数据然后转发给代理服务端
      */
-    private val mutex = Mutex()
+    private val queue = ConcurrentLinkedQueue<ByteArray>()
 
     /**
      * 代理服务器->代理客户端 流量统计
@@ -52,6 +51,9 @@ class ProxyServerManager(private val proxyServerAddress: String) {
     private val bytesOutChannel = Channel<Int>(Channel.UNLIMITED)
 
     init {
+        // 开启线程不断从队列中读取数据转发到代理服务端
+        startForwardRequestToProxyClientTask()
+
         runCatching {
             val (proxyServerHostname, proxyServerPort) = proxyServerAddress.split(":")
             LOGGER.info("代理服务器地址->$proxyServerHostname:$proxyServerPort")
@@ -83,7 +85,7 @@ class ProxyServerManager(private val proxyServerAddress: String) {
                 }
             }
 
-            scope.launch {
+            CoroutineScope(Executors.newFixedThreadPool(4).asCoroutineDispatcher()).launch {
                 runCatching {
                     proxyServerSocket.use {
                         while (true) {
@@ -94,20 +96,17 @@ class ProxyServerManager(private val proxyServerAddress: String) {
                                 val data = packet.data
                                 when (instructionId) {
                                     ProxyInstruction.CONNECT.instructionId -> {
-                                        protocolHandleMap[appId]?.afterHandshake()
+                                        nProtocolHandle[appId]?.afterHandshake()
                                     }
 
                                     ProxyInstruction.SEND.instructionId -> {
-                                        protocolHandleMap[appId]?.forwardRequestToApp(
-                                            data,
-                                            AppSocketStatus.ON_FORWARDING
-                                        )
+                                        nProtocolHandle[appId]?.forwardRequestToChannelOfApp(data)
                                         bytesInChannel.send(data.size)
                                     }
 
                                     ProxyInstruction.RESPONSE.instructionId -> {}
                                     ProxyInstruction.DISCONNECT.instructionId -> {
-                                        protocolHandleMap[appId]?.clean()
+                                        nProtocolHandle[appId]?.clean()
                                     }
 
                                     else -> {}
@@ -118,7 +117,7 @@ class ProxyServerManager(private val proxyServerAddress: String) {
                 }.onFailure {
                     LOGGER.error("等待读取代理服务端的数据时捕获到异常->[${it.message}]，请检查代理服务器是否还在正常运行")
                     proxyServerSocket.close()
-                    protocolHandleMap.values.forEach { abstractProtocolHandle -> abstractProtocolHandle.clean() }
+                    nProtocolHandle.values.forEach { abstractProtocolHandle -> abstractProtocolHandle.clean() }
                 }
             }
         }.onFailure {
@@ -128,32 +127,40 @@ class ProxyServerManager(private val proxyServerAddress: String) {
     }
 
     /**
-     * 发送请求数据到代理服务器
+     * 转发目标服务器的请求数据到代理客户端
      */
-    suspend fun sendRequestDataToProxyServer(appId: Int, data: ByteArray): Boolean {
-        mutex.withLock {
-            if (proxyServerSocket.isConnecting()) {
-                proxyServerSocket.getOutputStream().write(data)
-                bytesOutChannel.send(data.size)
-                return true
+    fun forwardRequestToProxyServer(data: ByteArray) {
+        queue.offer(data)
+    }
+
+    /**
+     * 创建一个线程不断读取队列中的请求数据然后转发给代理服务端
+     */
+    private fun startForwardRequestToProxyClientTask() {
+        thread {
+            runCatching {
+                while (true) {
+                    val data = queue.poll() ?: continue
+                    proxyServerSocket.getOutputStream().write(data)
+                }
+            }.onFailure {
+                LOGGER.error("向代理服务端转发数据遇到了错误[${it.message}]")
             }
-            LOGGER.warn("收到app[$appId]发送的请求数据，但是与代理服务器之间的连接已经关闭")
-            return false
         }
     }
 
     /**
-     * 确认app与要访问的目标服务器建立起链接后，注册到[ProxyServerManager.protocolHandleMap]中
+     * 确认app与要访问的目标服务器建立起链接后，注册到[ProxyServerManager.nProtocolHandle]中
      */
-    fun registerProtocolHandle(abstractProtocolHandle: AbstractProtocolHandle) {
-        protocolHandleMap[abstractProtocolHandle.appId] = abstractProtocolHandle
+    fun registerProtocolHandle(nAbstractProtocolHandle: NAbstractProtocolHandle) {
+        nProtocolHandle[nAbstractProtocolHandle.appId] = nAbstractProtocolHandle
     }
 
     /**
-     * 从[ProxyServerManager.protocolHandleMap]中移除app
+     * 从[ProxyServerManager.nProtocolHandle]中移除app
      */
-    fun unregisterProtocolHandle(abstractProtocolHandle: AbstractProtocolHandle) {
-        protocolHandleMap.remove(abstractProtocolHandle.appId)
+    fun unregisterProtocolHandle(nAbstractProtocolHandle: NAbstractProtocolHandle) {
+        nProtocolHandle.remove(nAbstractProtocolHandle.appId)
     }
 
     companion object {

@@ -12,6 +12,6 @@ fun main(args: Array<String>) {
         .default("127.0.0.1:8882")
     parser.parse(args)
 
-    val proxyClient = ProxyClient()
+    val proxyClient = NProxyClient()
     proxyClient.launchServer(port, server)
 }

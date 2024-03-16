@@ -12,6 +12,8 @@ fun main(args: Array<String>) {
         .default("127.0.0.1:8882")
     parser.parse(args)
 
+    System.setProperty("logback.configurationFile", "config/logback.xml")
+
     val proxyClient = NProxyClient()
     proxyClient.launchServer(port, server)
 }

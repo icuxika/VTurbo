@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class NProxyClient {
     private val supervisor = SupervisorJob()
-    private val scope = CoroutineScope(Dispatchers.IO + supervisor + CoroutineName("ProxyServerManager"))
+    private val scope = CoroutineScope(Dispatchers.IO + supervisor + CoroutineName("NProxyClient"))
 
     private val readBuffer = ByteBuffer.allocate(1024)
     private val clientMap = mutableMapOf<SocketChannel, NAppRequestContextHolder>()
@@ -29,8 +29,8 @@ class NProxyClient {
         val proxyServerManager = ProxyServerManager(proxyServerAddress)
 
         val serverSocketChannel = ServerSocketChannel.open()
+        serverSocketChannel.socket().bind(InetSocketAddress(port))
         serverSocketChannel.configureBlocking(false)
-        serverSocketChannel.bind(InetSocketAddress("0.0.0.0", port))
 
         val selector = Selector.open()
         serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT)
@@ -46,12 +46,13 @@ class NProxyClient {
                     key.isAcceptable -> {
                         val serverChannel = key.channel() as ServerSocketChannel
                         val clientChannel = serverChannel.accept()
-                        clientChannel.configureBlocking(false)
-                        clientChannel.register(
-                            selector,
-                            SelectionKey.OP_READ,
-                            Socks5HandshakeStatus.ASK_ABOUT_AUTHENTICATION_METHOD
-                        )
+                        clientChannel
+                            .configureBlocking(false)
+                            .register(
+                                selector,
+                                SelectionKey.OP_READ,
+                                Socks5HandshakeStatus.ASK_ABOUT_AUTHENTICATION_METHOD
+                            )
 
                         clientMap[clientChannel] =
                             NAppRequestContextHolder(
@@ -74,8 +75,8 @@ class NProxyClient {
                                     LOGGER.info("[${nAppRequestContextHolder.appId}]请求正常结束")
                                     nAppRequestContextHolder.notifyProxyServerRequestHasEnded()
                                 }
-                                clientChannel.close()
                                 key.cancel()
+                                clientChannel.close()
                             }
                             if (bytesRead > 0) {
                                 readBuffer.flip()
@@ -94,13 +95,13 @@ class NProxyClient {
                                     Socks5HandshakeStatus.START_FORWARDING_REQUEST_DATA -> {
                                         val byteArray = ByteArray(bytesRead)
                                         readBuffer.get(byteArray)
-
                                         nAppRequestContextHolder.forwardRequestToServer(bytesRead, byteArray)
                                     }
                                 }
                             }
                         }.onFailure {
                             LOGGER.info("[${nAppRequestContextHolder.appId}][${attachment.status}]遇到错误[${it.message}]")
+                            nAppRequestContextHolder.notifyProxyServerRequestHasEnded(false)
                             clientChannel.close()
                         }
                     }

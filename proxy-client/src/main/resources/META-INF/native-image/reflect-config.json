@@ -414,6 +414,17 @@
     "name": "java.util.PropertyPermission"
   },
   {
+    "name": "java.util.concurrent.ScheduledThreadPoolExecutor",
+    "methods": [
+      {
+        "name": "setRemoveOnCancelPolicy",
+        "parameterTypes": [
+          "boolean"
+        ]
+      }
+    ]
+  },
+  {
     "name": "java.util.concurrent.atomic.AtomicBoolean",
     "fields": [
       {
@@ -467,6 +478,22 @@
     ]
   },
   {
+    "name": "kotlinx.coroutines.CancelledContinuation",
+    "fields": [
+      {
+        "name": "_resumed$volatile"
+      }
+    ]
+  },
+  {
+    "name": "kotlinx.coroutines.CompletedExceptionally",
+    "fields": [
+      {
+        "name": "_handled$volatile"
+      }
+    ]
+  },
+  {
     "name": "kotlinx.coroutines.EventLoopImplBase",
     "fields": [
       {
@@ -488,6 +515,20 @@
       },
       {
         "name": "_state$volatile"
+      }
+    ]
+  },
+  {
+    "name": "kotlinx.coroutines.JobSupport$Finishing",
+    "fields": [
+      {
+        "name": "_exceptionsHolder$volatile"
+      },
+      {
+        "name": "_isCompleting$volatile"
+      },
+      {
+        "name": "_rootCause$volatile"
       }
     ]
   },
@@ -674,6 +715,24 @@
         "parameterTypes": [
           "java.security.SecureRandomParameters"
         ]
+      }
+    ]
+  },
+  {
+    "name": "sun.security.provider.SHA",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": []
+      }
+    ]
+  },
+  {
+    "name": "sun.security.provider.SHA2$SHA256",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": []
       }
     ]
   }

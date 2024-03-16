@@ -47,7 +47,7 @@ class AppRequestContextHolder(
             }
         }.onFailure {
             LOGGER.warn("发送数据到app channel时出现了错误[${it.message}]")
-            clean()
+            shutdownAbnormally()
         }
     }
 
@@ -65,7 +65,7 @@ class AppRequestContextHolder(
             val socksCommand = dataInputStream.readByte()
             if (socksCommand.toInt() != 0x01) {
                 LOGGER.error("仅支持CONNECT请求")
-                clean()
+                shutdownGracefully()
                 return@launch
             }
             dataInputStream.readByte()
@@ -93,7 +93,7 @@ class AppRequestContextHolder(
 
                 else -> {
                     LOGGER.error("不支持的目标服务器地址类型")
-                    clean()
+                    shutdownGracefully()
                     return@launch
                 }
             }
@@ -154,17 +154,24 @@ class AppRequestContextHolder(
                             byteArrayOf()
                         ).toByteArray()
                     )
-                    clean()
+                    shutdownGracefully()
                 }.onFailure {
                     LOGGER.warn("app[$appId]关闭了socket")
-                    clean()
+                    shutdownAbnormally()
                 }
             }
         }
     }
 
-    override fun clean() {
-        super.clean()
+    override fun shutdownGracefully() {
+        super.shutdownGracefully()
+        runCatching {
+            client.close()
+        }
+    }
+
+    override fun shutdownAbnormally() {
+        super.shutdownAbnormally()
         runCatching {
             client.close()
         }

@@ -1,8 +1,10 @@
 package com.icuxika.vturbo.server.client
 
 import com.icuxika.vturbo.commons.extensions.logger
+import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.readCompletePacket
+import com.icuxika.vturbo.commons.tcp.toByteArray
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +64,15 @@ class ProxyClientManager(private val client: Socket, private val clientId: Int) 
                                     ).startRequestProxy()
                                 }.onFailure {
                                     LOGGER.error("app将与目标服务器建立连接时遇到一个错误[${it.message}]")
+                                    // 通知代理客户端app
+                                    forwardRequestToProxyClient(
+                                        Packet(
+                                            appId,
+                                            ProxyInstruction.EXCEPTION_DISCONNECT.instructionId,
+                                            0,
+                                            byteArrayOf()
+                                        ).toByteArray()
+                                    )
                                 }
                             }
 
@@ -69,14 +80,15 @@ class ProxyClientManager(private val client: Socket, private val clientId: Int) 
                                 appRequestContextHolderMap[key(clientId, appId)]?.forwardRequestToRemoteSocket(data)
                             }
 
-                            ProxyInstruction.RESPONSE.instructionId -> {}
+                            ProxyInstruction.EXCEPTION_DISCONNECT.instructionId -> {
+                                appRequestContextHolderMap[key(clientId, appId)]?.closeRemoteSocket()
+                            }
+
                             ProxyInstruction.DISCONNECT.instructionId -> {
                                 appRequestContextHolderMap[key(clientId, appId)]?.closeRemoteSocket()
                             }
 
-                            else -> {
-                                LOGGER.warn("不支持的指令类型[$instructionId]")
-                            }
+                            else -> {}
                         }
                     }
                 }
@@ -109,8 +121,9 @@ class ProxyClientManager(private val client: Socket, private val clientId: Int) 
         thread {
             runCatching {
                 while (true) {
-                    val data = queue.poll() ?: continue
-                    client.getOutputStream().write(data)
+                    queue.poll()?.let {
+                        client.getOutputStream().write(it)
+                    }
                 }
             }.onFailure {
                 LOGGER.error("向客户端[$clientId]转发数据遇到了错误[${it.message}]")

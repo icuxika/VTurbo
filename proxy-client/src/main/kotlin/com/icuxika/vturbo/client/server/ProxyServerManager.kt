@@ -3,6 +3,7 @@ package com.icuxika.vturbo.client.server
 import com.icuxika.vturbo.client.protocol.NAbstractProtocolHandle
 import com.icuxika.vturbo.commons.extensions.logger
 import com.icuxika.vturbo.commons.extensions.toSpeed
+import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.readCompletePacket
 import kotlinx.coroutines.*
@@ -12,18 +13,15 @@ import java.net.Socket
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.Executors
 import kotlin.concurrent.scheduleAtFixedRate
 import kotlin.concurrent.thread
 
 /**
  * 管理与代理服务器之间的Socket链接，为app与目标服务器之间的请求数据进行转发
  */
-@OptIn(ExperimentalCoroutinesApi::class)
 class ProxyServerManager(private val proxyServerAddress: String) {
-
     private val supervisor = SupervisorJob()
-    private val scope = CoroutineScope(Dispatchers.IO + supervisor + CoroutineName("ProxyServerManager"))
+    private val scope = CoroutineScope(supervisor + Dispatchers.Default + CoroutineName("ProxyServerManager"))
 
     /**
      * 代理服务器Socket
@@ -38,7 +36,8 @@ class ProxyServerManager(private val proxyServerAddress: String) {
     /**
      * 接收app的请求数据然后转发给代理服务端
      */
-    private val queue = ConcurrentLinkedQueue<ByteArray>()
+    private val queueToProxyServer = ConcurrentLinkedQueue<ByteArray>()
+    private val queueToApp = ConcurrentLinkedQueue<Packet>()
 
     /**
      * 代理服务器->代理客户端 流量统计
@@ -51,8 +50,12 @@ class ProxyServerManager(private val proxyServerAddress: String) {
     private val bytesOutChannel = Channel<Int>(Channel.UNLIMITED)
 
     init {
+        // 创建计算网络传输速度的定时任务
+        createSpeedCalculateTask()
         // 开启线程不断从队列中读取数据转发到代理服务端
-        startForwardRequestToProxyClientTask()
+        startForwardRequestToProxyServerTask()
+        // 开启线程不断从队列中读取数据转发到app
+        startForwardRequestToAppTask()
 
         runCatching {
             val (proxyServerHostname, proxyServerPort) = proxyServerAddress.split(":")
@@ -60,64 +63,18 @@ class ProxyServerManager(private val proxyServerAddress: String) {
             proxyServerSocket.connect(InetSocketAddress(proxyServerHostname, proxyServerPort.toInt()))
             LOGGER.info("与代理服务器建立连接成功")
 
-            // 下载速度定时器
-            Timer().scheduleAtFixedRate(10000, 60000) {
-                runBlocking {
-                    var allBytesIn = 0
-                    while (!bytesInChannel.isEmpty) {
-                        allBytesIn += bytesInChannel.receive()
-                    }
-                    // B / s
-                    val transferSpeedInBytesPerSec = allBytesIn / (60000.0 / 1000.0)
-                    LOGGER.debug("下载速度为->${transferSpeedInBytesPerSec.toSpeed()}")
-                }
-            }
-            // 上传速度定时器
-            Timer().scheduleAtFixedRate(10000, 60000) {
-                runBlocking {
-                    var allBytesOut = 0
-                    while (!bytesOutChannel.isEmpty) {
-                        allBytesOut += bytesOutChannel.receive()
-                    }
-                    // B / s
-                    val transferSpeedInBytesPerSec = allBytesOut / (60000.0 / 1000.0)
-                    LOGGER.debug("上传速度为->${transferSpeedInBytesPerSec.toSpeed()}")
-                }
-            }
-
-            CoroutineScope(Executors.newFixedThreadPool(4).asCoroutineDispatcher()).launch {
+            thread {
                 runCatching {
-                    proxyServerSocket.use {
-                        while (true) {
-                            it.getInputStream().readCompletePacket(LOGGER).let { packet ->
-                                val appId = packet.appId
-                                val instructionId = packet.instructionId
-                                val length = packet.length
-                                val data = packet.data
-                                when (instructionId) {
-                                    ProxyInstruction.CONNECT.instructionId -> {
-                                        nProtocolHandle[appId]?.afterHandshake()
-                                    }
-
-                                    ProxyInstruction.SEND.instructionId -> {
-                                        nProtocolHandle[appId]?.forwardRequestToChannelOfApp(data)
-                                        bytesInChannel.send(data.size)
-                                    }
-
-                                    ProxyInstruction.RESPONSE.instructionId -> {}
-                                    ProxyInstruction.DISCONNECT.instructionId -> {
-                                        nProtocolHandle[appId]?.clean()
-                                    }
-
-                                    else -> {}
-                                }
-                            }
+                    while (true) {
+                        proxyServerSocket.getInputStream().readCompletePacket(LOGGER).let { packet ->
+                            scope.launch { bytesInChannel.send(packet.length) }
+                            queueToApp.offer(packet)
                         }
                     }
                 }.onFailure {
                     LOGGER.error("等待读取代理服务端的数据时捕获到异常->[${it.message}]，请检查代理服务器是否还在正常运行")
                     proxyServerSocket.close()
-                    nProtocolHandle.values.forEach { abstractProtocolHandle -> abstractProtocolHandle.clean() }
+                    nProtocolHandle.values.forEach { abstractProtocolHandle -> abstractProtocolHandle.shutdownAbnormally() }
                 }
             }
         }.onFailure {
@@ -130,21 +87,91 @@ class ProxyServerManager(private val proxyServerAddress: String) {
      * 转发目标服务器的请求数据到代理客户端
      */
     fun forwardRequestToProxyServer(data: ByteArray) {
-        queue.offer(data)
+        queueToProxyServer.offer(data)
     }
 
     /**
      * 创建一个线程不断读取队列中的请求数据然后转发给代理服务端
      */
-    private fun startForwardRequestToProxyClientTask() {
+    private fun startForwardRequestToProxyServerTask() {
         thread {
             runCatching {
                 while (true) {
-                    val data = queue.poll() ?: continue
-                    proxyServerSocket.getOutputStream().write(data)
+                    queueToProxyServer.poll()?.let {
+                        scope.launch { bytesOutChannel.send(it.size) }
+                        proxyServerSocket.getOutputStream().write(it)
+                    }
                 }
             }.onFailure {
                 LOGGER.error("向代理服务端转发数据遇到了错误[${it.message}]")
+            }
+        }
+    }
+
+    /**
+     * 创建一个线程不断从队列中读取数据转发到app
+     */
+    private fun startForwardRequestToAppTask() {
+        scope.launch {
+            runCatching {
+                while (true) {
+                    queueToApp.poll()?.let { packet ->
+                        val appId = packet.appId
+                        val instructionId = packet.instructionId
+                        val length = packet.length
+                        val data = packet.data
+                        when (instructionId) {
+                            ProxyInstruction.CONNECT.instructionId -> {
+                                nProtocolHandle[appId]?.afterHandshake()
+                            }
+
+                            ProxyInstruction.SEND.instructionId -> {
+                                nProtocolHandle[appId]?.forwardRequestToChannelOfApp(data)
+                            }
+
+                            ProxyInstruction.DISCONNECT.instructionId -> {
+                                LOGGER.info("收到代理服务端目标服务器请求结束的信号")
+                                nProtocolHandle[appId]?.shutdownGracefully()
+                            }
+
+                            ProxyInstruction.EXCEPTION_DISCONNECT.instructionId -> {
+                                nProtocolHandle[appId]?.shutdownAbnormally()
+                            }
+
+                            else -> {}
+                        }
+                    }
+                }
+            }.onFailure {
+                LOGGER.error("向app转发数据遇到了错误[${it.message}]")
+            }
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun createSpeedCalculateTask() {
+        // 下载速度定时器
+        Timer().scheduleAtFixedRate(10000, 60000) {
+            runBlocking {
+                var allBytesIn = 0
+                while (!bytesInChannel.isEmpty) {
+                    allBytesIn += bytesInChannel.receive()
+                }
+                // B / s
+                val transferSpeedInBytesPerSec = allBytesIn / (60000.0 / 1000.0)
+                LOGGER.debug("下载速度为->${transferSpeedInBytesPerSec.toSpeed()}")
+            }
+        }
+        // 上传速度定时器
+        Timer().scheduleAtFixedRate(10000, 60000) {
+            runBlocking {
+                var allBytesOut = 0
+                while (!bytesOutChannel.isEmpty) {
+                    allBytesOut += bytesOutChannel.receive()
+                }
+                // B / s
+                val transferSpeedInBytesPerSec = allBytesOut / (60000.0 / 1000.0)
+                LOGGER.debug("上传速度为->${transferSpeedInBytesPerSec.toSpeed()}")
             }
         }
     }

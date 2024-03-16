@@ -2,7 +2,7 @@ package com.icuxika.vturbo.client.protocol
 
 interface NProtocolHandle {
     /**
-     * Socks5 握手之前，初始化读取[NAbstractProtocolHandle.bytesToAppChannel]数据的协程
+     * 预备任务
      */
     fun beforeHandshake()
 
@@ -32,14 +32,17 @@ interface NProtocolHandle {
     fun forwardRequestToServer(data: ByteArray)
 
     /**
-     * [com.icuxika.vturbo.client.server.ProxyServerManager]调用此函数将请求数据推送到[NAbstractProtocolHandle.bytesToAppChannel]
-     */
-    suspend fun forwardRequestToChannelOfApp(data: ByteArray)
-
-    /**
      * 实际转发请求到app的操作
      */
     fun forwardRequestToApp(data: ByteArray)
 
-    fun clean()
+    /**
+     * 正常关闭
+     */
+    fun shutdownGracefully()
+
+    /**
+     * 异常关闭
+     */
+    fun shutdownAbnormally()
 }

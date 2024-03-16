@@ -47,14 +47,6 @@ class AppRequestContextHolder(
                     val buffer = ByteArray(IO_READ_BUFFER_SIZE)
                     var bytesRead: Int
                     while (remoteSocket.getInputStream().read(buffer).also { bytesRead = it } != -1) {
-                        LOGGER.trace(
-                            "[{}:{}]---->[{}:{}]-----[{}] Bytes",
-                            remoteAddress,
-                            remotePort,
-                            clientId,
-                            appId,
-                            bytesRead
-                        )
                         proxyClientManager.forwardRequestToProxyClient(
                             Packet(
                                 appId,
@@ -66,7 +58,26 @@ class AppRequestContextHolder(
                     }
                 }.onFailure {
                     LOGGER.error("[$remoteAddress:$remotePort]---->[$clientId:$appId]发生错误[${it.message}]")
+                    proxyClientManager.forwardRequestToProxyClient(
+                        Packet(
+                            appId,
+                            ProxyInstruction.EXCEPTION_DISCONNECT.instructionId,
+                            0,
+                            byteArrayOf()
+                        ).toByteArray()
+                    )
+                    closeRemoteSocket()
+                    return@runCatching
                 }
+                LOGGER.info("[$remoteAddress:$remotePort]---->[$clientId:$appId]请求结束")
+                proxyClientManager.forwardRequestToProxyClient(
+                    Packet(
+                        appId,
+                        ProxyInstruction.DISCONNECT.instructionId,
+                        0,
+                        byteArrayOf()
+                    ).toByteArray()
+                )
                 closeRemoteSocket()
             }.onFailure {
                 LOGGER.warn("[$clientId:$appId]无法与[$remoteAddress:$remotePort]建立连接[${it.message}]")
@@ -74,7 +85,7 @@ class AppRequestContextHolder(
                 proxyClientManager.forwardRequestToProxyClient(
                     Packet(
                         appId,
-                        ProxyInstruction.DISCONNECT.instructionId,
+                        ProxyInstruction.EXCEPTION_DISCONNECT.instructionId,
                         0,
                         byteArrayOf()
                     ).toByteArray()

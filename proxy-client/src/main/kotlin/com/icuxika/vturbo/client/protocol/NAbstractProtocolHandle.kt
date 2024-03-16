@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 abstract class NAbstractProtocolHandle(
     private val proxyServerManager: ProxyServerManager,
@@ -14,8 +15,10 @@ abstract class NAbstractProtocolHandle(
 ) : NProtocolHandle {
 
     /**
-     * 用于接收要发送到app的数据
+     * 当从客户端读到-1时，修改此变量的值为false
      */
+    var clientIsOpen: AtomicBoolean = AtomicBoolean(true)
+
     private val bytesToAppChannel = Channel<ByteArray>(Channel.UNLIMITED)
     private var bytesToAppJob: Job? = null
 
@@ -26,9 +29,17 @@ abstract class NAbstractProtocolHandle(
                     forwardRequestToApp(data)
                 }
             }.onFailure {
-                clean()
+                shutdownAbnormally()
             }
         }
+    }
+
+    override fun startHandshake() {
+
+    }
+
+    override fun afterHandshake() {
+
     }
 
     override fun registerToProxyServerManager() {
@@ -43,22 +54,23 @@ abstract class NAbstractProtocolHandle(
         proxyServerManager.forwardRequestToProxyServer(data)
     }
 
-    override suspend fun forwardRequestToChannelOfApp(data: ByteArray) {
+    suspend fun forwardRequestToChannelOfApp(data: ByteArray) {
         runCatching {
             bytesToAppChannel.send(data)
         }.onFailure {
-            clean()
+            shutdownAbnormally()
         }
     }
 
-    override fun clean() {
+    override fun shutdownGracefully() {
         unregisterFromProxyServerManager()
-        runCatching {
-            bytesToAppChannel.close()
-        }
         runCatching {
             bytesToAppJob?.cancel()
         }
+    }
+
+    override fun shutdownAbnormally() {
+        unregisterFromProxyServerManager()
     }
 
     companion object {

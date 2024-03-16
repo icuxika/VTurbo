@@ -7,6 +7,7 @@ import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.toByteArray
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 import java.nio.channels.SocketChannel
 
@@ -35,10 +36,24 @@ class NAppRequestContextHolder(
     }
 
     override fun forwardRequestToApp(data: ByteArray) {
+        val buffer = ByteBuffer.wrap(data)
+        var totalBytesWritten = 0
         runCatching {
-            clientChannel.write(ByteBuffer.wrap(data))
+            while (buffer.hasRemaining()) {
+                val bytesWritten = clientChannel.write(buffer)
+                totalBytesWritten += bytesWritten
+                if (bytesWritten == 0) {
+                    // 如果写入的字节数为0，则可能是底层网络缓冲区已满，暂停一段时间再试
+                    LOGGER.warn("系统底层网路缓冲区可能满了")
+                    Thread.sleep(10)
+                }
+            }
         }.onFailure {
-            LOGGER.error("向app写入数据时遇到错误")
+            LOGGER.error("向app写入数据时遇到错误[${it.message}]")
+        }
+
+        if (totalBytesWritten < data.size) {
+            LOGGER.warn("向app写入数据时未能完整写入数据，共有[${data.size}] Bytes，实际写入[$totalBytesWritten] Bytes")
         }
     }
 
@@ -122,16 +137,22 @@ class NAppRequestContextHolder(
     }
 
     override fun afterHandshake() {
-        clientChannel.write(
-            ByteBuffer.wrap(
-                byteArrayOf(
-                    0x05, //版本号
-                    0x00, //代理服务器连接目标服务器成功
-                    0x00,
-                    remoteAddressTypeByte
-                ) + remoteAddressBytes + remotePortBytes
-            )
-        )
+        scope.run {
+            runCatching {
+                clientChannel.write(
+                    ByteBuffer.wrap(
+                        byteArrayOf(
+                            0x05, //版本号
+                            0x00, //代理服务器连接目标服务器成功
+                            0x00,
+                            remoteAddressTypeByte
+                        ) + remoteAddressBytes + remotePortBytes
+                    )
+                )
+            }.onFailure {
+                LOGGER.warn("响应[$appId]目标服务器能够连接，Socks 5握手成功时遇到错误[${it.message}]")
+            }
+        }
     }
 
     /**
@@ -144,15 +165,35 @@ class NAppRequestContextHolder(
     /**
      * 通知代理服务端请求已经结束
      */
-    fun notifyProxyServerRequestHasEnded() {
-        forwardRequestToServer(Packet(appId, ProxyInstruction.DISCONNECT.instructionId, 0, byteArrayOf()).toByteArray())
-        clean()
+    fun notifyProxyServerRequestHasEnded(isCloseNormally: Boolean = true) {
+        clientIsOpen.set(false)
+        forwardRequestToServer(
+            Packet(
+                appId,
+                if (isCloseNormally) ProxyInstruction.DISCONNECT.instructionId else ProxyInstruction.EXCEPTION_DISCONNECT.instructionId,
+                0,
+                byteArrayOf()
+            ).toByteArray()
+        )
     }
 
-    override fun clean() {
-        super.clean()
-        runCatching {
-            clientChannel.close()
+    override fun shutdownGracefully() {
+        scope.launch {
+            super.shutdownGracefully()
+            runCatching {
+                if (clientIsOpen.get()) {
+                    clientChannel.close()
+                }
+            }
+        }
+    }
+
+    override fun shutdownAbnormally() {
+        scope.launch {
+            super.shutdownAbnormally()
+            runCatching {
+                clientChannel.close()
+            }
         }
     }
 }

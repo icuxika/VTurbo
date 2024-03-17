@@ -31,10 +31,12 @@ interface NProtocolHandle {
      */
     fun forwardRequestToServer(data: ByteArray)
 
+    suspend fun forwardRequestToChannelOfApp(data: ByteArray)
+
     /**
      * 实际转发请求到app的操作
      */
-    fun forwardRequestToApp(data: ByteArray)
+    suspend fun forwardRequestToApp(data: ByteArray)
 
     /**
      * 正常关闭

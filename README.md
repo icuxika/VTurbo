@@ -64,16 +64,8 @@ docker pull ghcr.io/graalvm/native-image-community:21-muslib
 
 #### 构建
 
-> 拷贝`.\gradlew.bat :proxy-server:shadowJar`生成的`proxy-server-0.0.1-all.jar`到要运行以下命令的目录下
->
-> `8883`端口用于第一次运行时，`.\ProxyClient.exe -s 127.0.0.1:8883`生成配置文件
-
 ```shell
-docker run --rm -it -v ${PWD}:/projects -p 8883:8882 --entrypoint /bin/bash ghcr.io/graalvm/native-image-community:21-muslib
-
-cd /projects/
-java -agentlib:native-image-agent=config-merge-dir=conf -jar proxy-server-0.0.1-all.jar
-native-image -H:ConfigurationFileDirectories=conf --no-fallback --static --libc=musl -jar proxy-server-0.0.1-all.jar -o ProxyServer
+.\buildServerOnWindows.ps1
 ```
 
 构建完成得到的`ProxyServer`上传到Linux后，需要`chmod +x ProxyServer`
@@ -119,3 +111,19 @@ java -agentlib:native-image-agent=config-merge-dir=proxy-client/src/main/resourc
 ```shell
 .\gradlew.bat :proxy-client:nativeBuild
 ```
+
+### docker 中构建 Linux 版本（静态链接 musl 作为 C 标准库实现）
+
+#### 拉取镜像
+
+ ```shell
+docker pull ghcr.io/graalvm/native-image-community:21-muslib
+```
+
+#### 构建
+
+```shell
+.\buildClientOnWindows.ps1
+```
+
+构建完成得到的`ProxyClient`上传到Linux后，需要`chmod +x ProxyClient`

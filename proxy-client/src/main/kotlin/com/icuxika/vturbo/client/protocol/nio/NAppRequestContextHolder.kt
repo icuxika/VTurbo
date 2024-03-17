@@ -1,12 +1,12 @@
 package com.icuxika.vturbo.client.protocol.nio
 
-import com.icuxika.vturbo.client.NProxyClient
 import com.icuxika.vturbo.client.protocol.NAbstractProtocolHandle
 import com.icuxika.vturbo.client.server.ProxyServerManager
 import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.toByteArray
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 import java.nio.channels.SocketChannel
@@ -35,7 +35,7 @@ class NAppRequestContextHolder(
         beforeHandshake()
     }
 
-    override fun forwardRequestToApp(data: ByteArray) {
+    override suspend fun forwardRequestToApp(data: ByteArray) {
         val buffer = ByteBuffer.wrap(data)
         var totalBytesWritten = 0
         runCatching {
@@ -44,16 +44,17 @@ class NAppRequestContextHolder(
                 totalBytesWritten += bytesWritten
                 if (bytesWritten == 0) {
                     // 如果写入的字节数为0，则可能是底层网络缓冲区已满，暂停一段时间再试
-                    LOGGER.warn("系统底层网路缓冲区可能满了")
-                    Thread.sleep(10)
+                    LOGGER.warn("[$appId]-----系统底层网路缓冲区可能满了")
+                    delay(10)
                 }
             }
         }.onFailure {
-            LOGGER.error("向app写入数据时遇到错误[${it.message}]")
+            it.printStackTrace()
+            LOGGER.error("向[$appId]写入数据时遇到错误[${it.message}]")
         }
 
         if (totalBytesWritten < data.size) {
-            LOGGER.warn("向app写入数据时未能完整写入数据，共有[${data.size}] Bytes，实际写入[$totalBytesWritten] Bytes")
+            LOGGER.warn("向[$appId]写入数据时未能完整写入数据，共有[${data.size}] Bytes，实际写入[$totalBytesWritten] Bytes")
         }
     }
 
@@ -76,7 +77,7 @@ class NAppRequestContextHolder(
         val socksVersion = readBuffer.get()
         val socksCommand = readBuffer.get()
         if (socksCommand.toInt() != 0x01) {
-            NProxyClient.LOGGER.error("仅支持CONNECT请求")
+            LOGGER.error("仅支持CONNECT请求")
             clientChannel.close()
             return
         }
@@ -118,7 +119,7 @@ class NAppRequestContextHolder(
         readBuffer.get(byteArray)
         remotePortBytes = byteArray
         remotePort = ByteBuffer.wrap(remotePortBytes).getShort()
-        NProxyClient.LOGGER.info("要访问的目标服务器[$remoteAddress:$remotePort]")
+        LOGGER.info("[$appId]要访问的目标服务器[$remoteAddressTypeByte][$remoteAddress:$remotePort]")
         // ----------------------------------------
         val addressBytes = remoteAddress.toByteArray()
         registerToProxyServerManager()

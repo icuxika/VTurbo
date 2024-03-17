@@ -40,7 +40,7 @@ class AppRequestContextHolder(
         startHandshake()
     }
 
-    override fun forwardRequestToApp(data: ByteArray) {
+    override suspend fun forwardRequestToApp(data: ByteArray) {
         runCatching {
             if (!client.isConnecting()) {
                 client.getOutputStream().write(data)

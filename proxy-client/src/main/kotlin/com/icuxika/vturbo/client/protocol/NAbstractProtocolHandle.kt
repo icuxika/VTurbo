@@ -54,7 +54,7 @@ abstract class NAbstractProtocolHandle(
         proxyServerManager.forwardRequestToProxyServer(data)
     }
 
-    suspend fun forwardRequestToChannelOfApp(data: ByteArray) {
+    override suspend fun forwardRequestToChannelOfApp(data: ByteArray) {
         runCatching {
             bytesToAppChannel.send(data)
         }.onFailure {

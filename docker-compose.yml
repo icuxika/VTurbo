@@ -1,0 +1,22 @@
+version: "3.0"
+
+services:
+  vturbo-proxy-server:
+    build:
+      context: ./proxy-server
+    image: icuxika/vturbo-proxy-server:0.0.1
+    container_name: vturbo-proxy-server
+    restart: no
+    ports:
+      - "8882:8882"
+
+  vturbo-proxy-client:
+    build:
+      context: ./proxy-client
+    image: icuxika/vturbo-proxy-client:0.0.1
+    container_name: vturbo-proxy-client
+    restart: no
+    environment:
+      - "PROXY_SERVER_ADDRESS=192.168.50.88:8882"
+    ports:
+      - "8881:8881"

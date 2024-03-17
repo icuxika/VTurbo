@@ -75,7 +75,14 @@ docker pull ghcr.io/graalvm/native-image-community:21-muslib
 ```shell
 cd .\proxy-server\
 docker build . -t icuxika/vturbo-proxy-server:0.0.1
-docker run --rm --init -p 8883:8882 icuxika/vturbo-proxy-server:0.0.1
+docker run --rm --init -p 8882:8882 icuxika/vturbo-proxy-server:0.0.1
+```
+
+或
+
+```shell
+docker-compose build
+docker-compose up vturbo-proxy-server
 ```
 
 客户端
@@ -127,3 +134,18 @@ docker pull ghcr.io/graalvm/native-image-community:21-muslib
 ```
 
 构建完成得到的`ProxyClient`上传到Linux后，需要`chmod +x ProxyClient`
+
+### Windows 通过 Dockerfile 直接运行
+
+```shell
+cd .\proxy-client\
+docker build . -t icuxika/vturbo-proxy-client:0.0.1
+docker run --rm --init -p 8881:8881 -e "PROXY_SERVER_ADDRESS=192.168.50.88:8882" icuxika/vturbo-proxy-client:0.0.1
+```
+
+或
+
+```shell
+docker-compose build
+docker-compose up vturbo-proxy-client
+```

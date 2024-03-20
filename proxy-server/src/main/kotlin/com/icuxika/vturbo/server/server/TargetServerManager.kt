@@ -5,13 +5,13 @@ import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.toByteArray
 import com.icuxika.vturbo.server.client.ProxyClientManager
-import kotlinx.coroutines.delay
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
 import java.nio.channels.SocketChannel
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.thread
 
@@ -32,7 +32,20 @@ class TargetServerManager {
 
     private val readBuffer = ByteBuffer.allocate(1024)
 
+    private val forwardDataToTargetServerQueue = ArrayBlockingQueue<ClientPacket>(100)
+
     fun mainLoop() {
+        // 不断转发代理客户端的请求数据到目标服务端
+        thread {
+            while (true) {
+                forwardDataToTargetServerQueue.take().let { clientPacket ->
+                    val (clientId, appId, data) = clientPacket
+                    forwardRequestToServer(clientId, appId, data)
+                }
+            }
+        }
+
+        // 主线，不断处理目标服务器的相关就绪事件
         thread {
             selector = Selector.open()
             while (true) {
@@ -174,7 +187,7 @@ class TargetServerManager {
     /**
      * 转发请求数据到目标服务器
      */
-    suspend fun forwardRequestToServer(clientId: Int, appId: Int, data: ByteArray) {
+    private fun forwardRequestToServer(clientId: Int, appId: Int, data: ByteArray) {
         serverChannelMap[generateAppKey(clientId, appId)]?.let { socketChannel ->
             val buffer = ByteBuffer.wrap(data)
             var totalBytesWritten = 0
@@ -185,11 +198,10 @@ class TargetServerManager {
                     if (bytesWritten == 0) {
                         // 如果写入的字节数为0，则可能是底层网络缓冲区已满，暂停一段时间再试
                         LOGGER.warn("[$clientId:$appId]-----系统底层网路缓冲区可能满了")
-                        delay(10)
+                        Thread.sleep(10)
                     }
                 }
             }.onFailure {
-                it.printStackTrace()
                 LOGGER.error("向[$clientId:$appId]的目标服务器写入数据时遇到错误[${it.message}]")
             }
 
@@ -197,6 +209,11 @@ class TargetServerManager {
                 LOGGER.warn("向[$clientId:$appId]的目标服务器写入数据时未能完整写入数据，共有[${data.size}] Bytes，实际写入[$totalBytesWritten] Bytes")
             }
         }
+    }
+
+    @Synchronized
+    fun forwardRequestToTargetServer(clientPacket: ClientPacket) {
+        forwardDataToTargetServerQueue.put(clientPacket)
     }
 
     /**

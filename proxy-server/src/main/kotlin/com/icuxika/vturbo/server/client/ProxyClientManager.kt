@@ -5,12 +5,15 @@ import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.readCompletePacket
 import com.icuxika.vturbo.commons.tcp.toByteArray
+import com.icuxika.vturbo.server.server.ClientPacket
 import com.icuxika.vturbo.server.server.TargetServerManager
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import java.net.InetAddress
 import java.net.Socket
 import java.nio.ByteBuffer
-import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.concurrent.thread
 
@@ -23,55 +26,22 @@ class ProxyClientManager(
     val clientId: Int
 ) {
     private val supervisor = SupervisorJob()
-    private val scope = CoroutineScope(Dispatchers.IO + supervisor + CoroutineName("client:$clientId"))
+    private val scope = CoroutineScope(supervisor + Dispatchers.Default + CoroutineName("ProxyClientManager$clientId"))
 
     /**
      * 接收目标服务器的请求数据然后转发给代理客户端
      */
-    private val queueToProxyClient = ArrayBlockingQueue<ByteArray>(20 * 1024 * 1024)
-
-    /**
-     * 接收代理客户端的请求数据然后转发给目标服务器
-     */
-    private val queueToTargetServer = ConcurrentLinkedQueue<Packet>()
+    private val queueToProxyClient = ConcurrentLinkedQueue<ByteArray>()
 
     fun startRequestProxy() {
         LOGGER.info("新客户端建立连接，id->$clientId")
+        // 注册到 TargetServerManager 以接收目标服务器响应的请求数据
         targetServerManager.registerClientManager(this)
         // 开启线程不断从队列中读取数据转发到代理客户端
-        startForwardRequestToProxyClientTask()
-        // 开启线程不断从队列中读取数据转发到目标服务器
-        startForwardRequestToTargetServerTask()
-
         thread {
             runCatching {
                 while (true) {
-                    client.getInputStream().readCompletePacket(LOGGER).let { packet ->
-                        queueToTargetServer.offer(packet)
-                    }
-                }
-            }.onFailure {
-                LOGGER.error("从客户端[$clientId]读取数据时出现了错误[${it.message}]")
-                cleanProxyClientSocket()
-            }
-        }
-    }
-
-    /**
-     * 转发目标服务器的请求数据到代理客户端
-     */
-    fun forwardRequestToProxyClient(data: ByteArray) {
-        queueToProxyClient.put(data)
-    }
-
-    /**
-     * 创建一个线程不断读取队列中的请求数据然后转发给代理客户端
-     */
-    private fun startForwardRequestToProxyClientTask() {
-        thread {
-            runCatching {
-                while (true) {
-                    queueToProxyClient.take().let {
+                    queueToProxyClient.poll()?.let {
                         client.getOutputStream().write(it)
                     }
                 }
@@ -80,16 +50,11 @@ class ProxyClientManager(
                 cleanProxyClientSocket()
             }
         }
-    }
-
-    /**
-     * 不断读取队列中请求数据转发给目标服务器
-     */
-    private fun startForwardRequestToTargetServerTask() {
-        scope.launch {
+        // 主要线程，不断读取客户端的请求数据并处理
+        thread {
             runCatching {
                 while (true) {
-                    queueToTargetServer.poll()?.let { packet ->
+                    client.getInputStream().readCompletePacket(LOGGER).let { packet ->
                         val (appId, instructionId, length, data) = packet
                         when (instructionId) {
                             ProxyInstruction.CONNECT.instructionId -> {
@@ -116,7 +81,7 @@ class ProxyClientManager(
                             }
 
                             ProxyInstruction.SEND.instructionId -> {
-                                targetServerManager.forwardRequestToServer(clientId, appId, data)
+                                targetServerManager.forwardRequestToTargetServer(ClientPacket(clientId, appId, data))
                             }
 
                             ProxyInstruction.DISCONNECT.instructionId -> {
@@ -131,8 +96,18 @@ class ProxyClientManager(
                         }
                     }
                 }
+            }.onFailure {
+                LOGGER.error("从客户端[$clientId]读取数据时出现了错误[${it.message}]")
+                cleanProxyClientSocket()
             }
         }
+    }
+
+    /**
+     * 转发目标服务器的请求数据到代理客户端
+     */
+    fun forwardRequestToProxyClient(data: ByteArray) {
+        queueToProxyClient.offer(data)
     }
 
     /**

@@ -5,46 +5,92 @@ import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.readCompletePacket
 import com.icuxika.vturbo.commons.tcp.toByteArray
-import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import com.icuxika.vturbo.server.server.TargetServerManager
+import kotlinx.coroutines.*
 import java.net.InetAddress
 import java.net.Socket
 import java.nio.ByteBuffer
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.concurrent.thread
 
-class ProxyClientManager(private val client: Socket, private val clientId: Int) {
+/**
+ * 一个[ProxyClientManager]实例对应一个代理客户端连接，共用一个[TargetServerManager]
+ */
+class ProxyClientManager(
+    private val targetServerManager: TargetServerManager,
+    private val client: Socket,
+    val clientId: Int
+) {
     private val supervisor = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.IO + supervisor + CoroutineName("client:$clientId"))
 
     /**
-     * 接收目标服务器的请求数据然后转发给客户端
+     * 接收目标服务器的请求数据然后转发给代理客户端
      */
-    private val queue = ConcurrentLinkedQueue<ByteArray>()
+    private val queueToProxyClient = ArrayBlockingQueue<ByteArray>(20 * 1024 * 1024)
 
     /**
-     * clientId:appId -> appRequest
+     * 接收代理客户端的请求数据然后转发给目标服务器
      */
-    private val appRequestContextHolderMap = ConcurrentHashMap<String, AppRequestContextHolder>()
-    private val key: (x: Int, y: Int) -> String = { x, y -> "$x:$y" }
+    private val queueToTargetServer = ConcurrentLinkedQueue<Packet>()
 
     fun startRequestProxy() {
         LOGGER.info("新客户端建立连接，id->$clientId")
+        targetServerManager.registerClientManager(this)
         // 开启线程不断从队列中读取数据转发到代理客户端
         startForwardRequestToProxyClientTask()
+        // 开启线程不断从队列中读取数据转发到目标服务器
+        startForwardRequestToTargetServerTask()
 
         thread {
             runCatching {
                 while (true) {
-                    // TODO 处理不是由客户端发来的请求数据
                     client.getInputStream().readCompletePacket(LOGGER).let { packet ->
-                        val appId = packet.appId
-                        val instructionId = packet.instructionId
-                        val length = packet.length
-                        val data = packet.data
+                        queueToTargetServer.offer(packet)
+                    }
+                }
+            }.onFailure {
+                LOGGER.error("从客户端[$clientId]读取数据时出现了错误[${it.message}]")
+                cleanProxyClientSocket()
+            }
+        }
+    }
+
+    /**
+     * 转发目标服务器的请求数据到代理客户端
+     */
+    fun forwardRequestToProxyClient(data: ByteArray) {
+        queueToProxyClient.put(data)
+    }
+
+    /**
+     * 创建一个线程不断读取队列中的请求数据然后转发给代理客户端
+     */
+    private fun startForwardRequestToProxyClientTask() {
+        thread {
+            runCatching {
+                while (true) {
+                    queueToProxyClient.take().let {
+                        client.getOutputStream().write(it)
+                    }
+                }
+            }.onFailure {
+                LOGGER.error("向客户端[$clientId]转发数据遇到了错误[${it.message}]")
+                cleanProxyClientSocket()
+            }
+        }
+    }
+
+    /**
+     * 不断读取队列中请求数据转发给目标服务器
+     */
+    private fun startForwardRequestToTargetServerTask() {
+        scope.launch {
+            runCatching {
+                while (true) {
+                    queueToTargetServer.poll()?.let { packet ->
+                        val (appId, instructionId, length, data) = packet
                         when (instructionId) {
                             ProxyInstruction.CONNECT.instructionId -> {
                                 runCatching {
@@ -54,14 +100,7 @@ class ProxyClientManager(private val client: Socket, private val clientId: Int) 
                                     val remoteAddress = InetAddress.getByName(String(remoteAddressBytes))
                                     val remotePort = ByteBuffer.wrap(remotePortBytes).getShort()
 
-                                    AppRequestContextHolder(
-                                        this@ProxyClientManager,
-                                        scope,
-                                        clientId,
-                                        appId,
-                                        remoteAddress,
-                                        remotePort
-                                    ).startRequestProxy()
+                                    targetServerManager.connectToServer(clientId, appId, remoteAddress, remotePort)
                                 }.onFailure {
                                     LOGGER.error("app将与目标服务器建立连接时遇到一个错误[${it.message}]")
                                     // 通知代理客户端app
@@ -77,57 +116,21 @@ class ProxyClientManager(private val client: Socket, private val clientId: Int) 
                             }
 
                             ProxyInstruction.SEND.instructionId -> {
-                                appRequestContextHolderMap[key(clientId, appId)]?.forwardRequestToRemoteSocket(data)
-                            }
-
-                            ProxyInstruction.EXCEPTION_DISCONNECT.instructionId -> {
-                                appRequestContextHolderMap[key(clientId, appId)]?.closeRemoteSocket()
+                                targetServerManager.forwardRequestToServer(clientId, appId, data)
                             }
 
                             ProxyInstruction.DISCONNECT.instructionId -> {
-                                appRequestContextHolderMap[key(clientId, appId)]?.closeRemoteSocket()
+                                targetServerManager.closeSocketChannel(clientId, appId)
+                            }
+
+                            ProxyInstruction.EXCEPTION_DISCONNECT.instructionId -> {
+                                targetServerManager.closeSocketChannel(clientId, appId)
                             }
 
                             else -> {}
                         }
                     }
                 }
-            }.onFailure {
-                LOGGER.error("从客户端[$clientId]读取数据时出现了错误[${it.message}]")
-                clean()
-            }
-        }
-    }
-
-    fun registerAppRequest(appRequestContextHolder: AppRequestContextHolder) {
-        appRequestContextHolderMap[key(clientId, appRequestContextHolder.appId)] = appRequestContextHolder
-    }
-
-    fun unregisterAppRequest(appRequestContextHolder: AppRequestContextHolder) {
-        appRequestContextHolderMap.remove(key(clientId, appRequestContextHolder.appId))
-    }
-
-    /**
-     * 转发目标服务器的请求数据到代理客户端
-     */
-    fun forwardRequestToProxyClient(data: ByteArray) {
-        queue.offer(data)
-    }
-
-    /**
-     * 创建一个线程不断读取队列中的请求数据然后转发给代理客户端
-     */
-    private fun startForwardRequestToProxyClientTask() {
-        thread {
-            runCatching {
-                while (true) {
-                    queue.poll()?.let {
-                        client.getOutputStream().write(it)
-                    }
-                }
-            }.onFailure {
-                LOGGER.error("向客户端[$clientId]转发数据遇到了错误[${it.message}]")
-                clean()
             }
         }
     }
@@ -135,15 +138,12 @@ class ProxyClientManager(private val client: Socket, private val clientId: Int) 
     /**
      * 与代理客户端之间的连接断开处理
      */
-    private fun clean() {
+    private fun cleanProxyClientSocket() {
         runCatching {
             client.close()
         }
-        runCatching {
-            appRequestContextHolderMap.values.forEach { appRequestContextHolder ->
-                appRequestContextHolder.closeRemoteSocket()
-            }
-        }
+        targetServerManager.closeAllChannelByClientId(clientId)
+        targetServerManager.unregisterClientManager(this)
     }
 
     companion object {

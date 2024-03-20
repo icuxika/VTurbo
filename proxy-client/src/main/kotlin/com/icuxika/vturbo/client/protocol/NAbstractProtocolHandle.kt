@@ -56,7 +56,9 @@ abstract class NAbstractProtocolHandle(
 
     override suspend fun forwardRequestToChannelOfApp(data: ByteArray) {
         runCatching {
-            bytesToAppChannel.send(data)
+            if (clientIsOpen.get()) {
+                bytesToAppChannel.send(data)
+            }
         }.onFailure {
             shutdownAbnormally()
         }

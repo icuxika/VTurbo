@@ -36,6 +36,9 @@ class NAppRequestContextHolder(
     }
 
     override suspend fun forwardRequestToApp(data: ByteArray) {
+        if (!clientChannel.isOpen) {
+            return
+        }
         val buffer = ByteBuffer.wrap(data)
         var totalBytesWritten = 0
         runCatching {

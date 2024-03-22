@@ -52,8 +52,7 @@ class NAppRequestContextHolder(
                 }
             }
         }.onFailure {
-            it.printStackTrace()
-            LOGGER.error("向[$appId]写入数据时遇到错误[${it.message}]")
+            LOGGER.error("向[$appId]写入数据时遇到错误[${it.message}]", it)
         }
 
         if (totalBytesWritten < data.size) {

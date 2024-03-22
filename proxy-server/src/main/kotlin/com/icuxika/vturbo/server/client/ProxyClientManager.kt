@@ -46,7 +46,7 @@ class ProxyClientManager(
                     }
                 }
             }.onFailure {
-                LOGGER.error("向客户端[$clientId]转发数据遇到了错误[${it.message}]")
+                LOGGER.error("向客户端[$clientId]转发数据遇到了错误[${it.message}]", it)
                 cleanProxyClientSocket()
             }
         }
@@ -67,7 +67,7 @@ class ProxyClientManager(
 
                                     targetServerManager.connectToServer(clientId, appId, remoteAddress, remotePort)
                                 }.onFailure {
-                                    LOGGER.error("app将与目标服务器建立连接时遇到一个错误[${it.message}]")
+                                    LOGGER.error("app将与目标服务器建立连接时遇到一个错误[${it.message}]", it)
                                     // 通知代理客户端app
                                     forwardRequestToProxyClient(
                                         Packet(
@@ -97,7 +97,7 @@ class ProxyClientManager(
                     }
                 }
             }.onFailure {
-                LOGGER.error("从客户端[$clientId]读取数据时出现了错误[${it.message}]")
+                LOGGER.error("从客户端[$clientId]读取数据时出现了错误[${it.message}]", it)
                 cleanProxyClientSocket()
             }
         }

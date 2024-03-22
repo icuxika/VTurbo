@@ -72,13 +72,16 @@ class ProxyServerManager(private val proxyServerAddress: String) {
                         }
                     }
                 }.onFailure {
-                    LOGGER.error("等待读取代理服务端的数据时捕获到异常->[${it.message}]，请检查代理服务器是否还在正常运行")
+                    LOGGER.error(
+                        "等待读取代理服务端的数据时捕获到异常->[${it.message}]，请检查代理服务器是否还在正常运行",
+                        it
+                    )
                     proxyServerSocket.close()
                     nProtocolHandle.values.forEach { abstractProtocolHandle -> abstractProtocolHandle.shutdownAbnormally() }
                 }
             }
         }.onFailure {
-            LOGGER.error("无法与代理服务器建立连接")
+            LOGGER.error("无法与代理服务器建立连接", it)
             proxyServerSocket.close()
         }
     }
@@ -103,7 +106,7 @@ class ProxyServerManager(private val proxyServerAddress: String) {
                     }
                 }
             }.onFailure {
-                LOGGER.error("向代理服务端转发数据遇到了错误[${it.message}]")
+                LOGGER.error("向代理服务端转发数据遇到了错误[${it.message}]", it)
             }
         }
     }
@@ -143,7 +146,7 @@ class ProxyServerManager(private val proxyServerAddress: String) {
                     }
                 }
             }.onFailure {
-                LOGGER.error("向app转发数据遇到了错误[${it.message}]")
+                LOGGER.error("向app转发数据遇到了错误[${it.message}]", it)
             }
         }
     }

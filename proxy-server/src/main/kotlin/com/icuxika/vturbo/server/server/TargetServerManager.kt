@@ -151,7 +151,7 @@ class TargetServerManager {
                 )
             }
         }.onFailure {
-            LOGGER.error("[$clientId:$appId]读取目标服务器数据出现错误[${it.message}]")
+            LOGGER.error("[$clientId:$appId]读取目标服务器数据出现错误[${it.message}]", it)
             forwardRequestToProxyClient(
                 clientId.toInt(),
                 Packet(
@@ -180,7 +180,7 @@ class TargetServerManager {
             }
             selector.wakeup()
         }.onFailure {
-            LOGGER.error("新连接[$clientId:$appId]---->[$remoteAddress:$remotePort]注册失败[${it.message}]")
+            LOGGER.error("新连接[$clientId:$appId]---->[$remoteAddress:$remotePort]注册失败[${it.message}]", it)
         }
     }
 
@@ -202,7 +202,7 @@ class TargetServerManager {
                     }
                 }
             }.onFailure {
-                LOGGER.error("向[$clientId:$appId]的目标服务器写入数据时遇到错误[${it.message}]")
+                LOGGER.error("向[$clientId:$appId]的目标服务器写入数据时遇到错误[${it.message}]", it)
             }
 
             if (totalBytesWritten < data.size) {

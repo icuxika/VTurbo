@@ -75,6 +75,7 @@ class NProxyClient {
                                     LOGGER.info("[${nAppRequestContextHolder.appId}]请求正常结束")
                                     nAppRequestContextHolder.notifyProxyServerRequestHasEnded()
                                 }
+                                nAppRequestContextHolder.shutdownGracefully()
                                 key.cancel()
                                 clientChannel.close()
                             }
@@ -102,6 +103,7 @@ class NProxyClient {
                         }.onFailure {
                             LOGGER.info("[${nAppRequestContextHolder.appId}][${attachment.status}]遇到错误[${it.message}]")
                             nAppRequestContextHolder.notifyProxyServerRequestHasEnded(false)
+                            nAppRequestContextHolder.shutdownGracefully()
                             clientChannel.close()
                         }
                     }

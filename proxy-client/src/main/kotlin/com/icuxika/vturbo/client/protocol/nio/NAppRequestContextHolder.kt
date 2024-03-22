@@ -169,7 +169,6 @@ class NAppRequestContextHolder(
      * 通知代理服务端请求已经结束
      */
     fun notifyProxyServerRequestHasEnded(isCloseNormally: Boolean = true) {
-        clientIsOpen.set(false)
         forwardRequestToServer(
             Packet(
                 appId,
@@ -184,9 +183,7 @@ class NAppRequestContextHolder(
         scope.launch {
             super.shutdownGracefully()
             runCatching {
-                if (clientIsOpen.get()) {
-                    clientChannel.close()
-                }
+                clientChannel.close()
             }
         }
     }

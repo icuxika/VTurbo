@@ -6,18 +6,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicBoolean
 
 abstract class NAbstractProtocolHandle(
     private val proxyServerManager: ProxyServerManager,
     open val scope: CoroutineScope,
     open val appId: Int
 ) : NProtocolHandle {
-
-    /**
-     * 当从客户端读到-1时，修改此变量的值为false
-     */
-    var clientIsOpen: AtomicBoolean = AtomicBoolean(true)
 
     private val bytesToAppChannel = Channel<ByteArray>(Channel.UNLIMITED)
     private var bytesToAppJob: Job? = null
@@ -56,9 +50,7 @@ abstract class NAbstractProtocolHandle(
 
     override suspend fun forwardRequestToChannelOfApp(data: ByteArray) {
         runCatching {
-            if (clientIsOpen.get()) {
-                bytesToAppChannel.send(data)
-            }
+            bytesToAppChannel.send(data)
         }.onFailure {
             shutdownAbnormally()
         }
@@ -68,11 +60,16 @@ abstract class NAbstractProtocolHandle(
         unregisterFromProxyServerManager()
         runCatching {
             bytesToAppJob?.cancel()
+            bytesToAppChannel.close()
         }
     }
 
     override fun shutdownAbnormally() {
         unregisterFromProxyServerManager()
+        runCatching {
+            bytesToAppJob?.cancel()
+            bytesToAppChannel.close()
+        }
     }
 
     companion object {

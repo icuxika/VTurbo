@@ -3,26 +3,28 @@ package com.icuxika.vturbo.client.protocol
 import com.icuxika.vturbo.client.server.ProxyServerManager
 import com.icuxika.vturbo.commons.extensions.logger
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 
-abstract class NAbstractProtocolHandle(
+abstract class AbstractProtocolHandle(
     private val proxyServerManager: ProxyServerManager,
-    open val scope: CoroutineScope,
-    open val appId: Int
-) : NProtocolHandle {
+    open val scope: CoroutineScope
+) : ProtocolHandle {
 
+    /**
+     * 用于转发请求数据到app
+     */
     private val bytesToAppChannel = Channel<ByteArray>(Channel.UNLIMITED)
-    private var bytesToAppJob: Job? = null
 
     override fun beforeHandshake() {
-        bytesToAppJob = scope.launch {
+        scope.launch {
             runCatching {
                 for (data in bytesToAppChannel) {
                     forwardRequestToApp(data)
                 }
             }.onFailure {
+                LOGGER.error("从Channel中读取请求数据发生错误[${it.message}]", it)
                 shutdownAbnormally()
             }
         }
@@ -48,10 +50,14 @@ abstract class NAbstractProtocolHandle(
         proxyServerManager.forwardRequestToProxyServer(data)
     }
 
+    @OptIn(DelicateCoroutinesApi::class)
     override suspend fun forwardRequestToChannelOfApp(data: ByteArray) {
         runCatching {
-            bytesToAppChannel.send(data)
+            if (!bytesToAppChannel.isClosedForSend) {
+                bytesToAppChannel.send(data)
+            }
         }.onFailure {
+            LOGGER.error("向Channel发送请求数据发生错误[${it.message}]", it)
             shutdownAbnormally()
         }
     }
@@ -59,7 +65,6 @@ abstract class NAbstractProtocolHandle(
     override fun shutdownGracefully() {
         unregisterFromProxyServerManager()
         runCatching {
-            bytesToAppJob?.cancel()
             bytesToAppChannel.close()
         }
     }
@@ -67,7 +72,6 @@ abstract class NAbstractProtocolHandle(
     override fun shutdownAbnormally() {
         unregisterFromProxyServerManager()
         runCatching {
-            bytesToAppJob?.cancel()
             bytesToAppChannel.close()
         }
     }

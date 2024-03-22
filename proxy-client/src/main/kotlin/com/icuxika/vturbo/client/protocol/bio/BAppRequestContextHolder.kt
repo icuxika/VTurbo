@@ -1,6 +1,6 @@
 package com.icuxika.vturbo.client.protocol.bio
 
-import com.icuxika.vturbo.client.protocol.NAbstractProtocolHandle
+import com.icuxika.vturbo.client.protocol.AbstractProtocolHandle
 import com.icuxika.vturbo.client.server.ProxyServerManager
 import com.icuxika.vturbo.commons.extensions.isConnecting
 import com.icuxika.vturbo.commons.extensions.logger
@@ -16,12 +16,12 @@ import java.io.DataInputStream
 import java.net.Socket
 import java.nio.ByteBuffer
 
-class AppRequestContextHolder(
+class BAppRequestContextHolder(
     private val client: Socket,
     proxyServerManager: ProxyServerManager,
     override val scope: CoroutineScope,
-    override val appId: Int
-) : NAbstractProtocolHandle(proxyServerManager, scope, appId) {
+    private val appId: Int
+) : AbstractProtocolHandle(proxyServerManager, scope) {
     /**
      * app要访问的目标服务器和端口
      */
@@ -38,6 +38,10 @@ class AppRequestContextHolder(
     init {
         beforeHandshake()
         startHandshake()
+    }
+
+    override fun getId(): Int {
+        return appId
     }
 
     override suspend fun forwardRequestToApp(data: ByteArray) {

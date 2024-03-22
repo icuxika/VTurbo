@@ -1,6 +1,6 @@
 package com.icuxika.vturbo.client.protocol.nio
 
-import com.icuxika.vturbo.client.protocol.NAbstractProtocolHandle
+import com.icuxika.vturbo.client.protocol.AbstractProtocolHandle
 import com.icuxika.vturbo.client.server.ProxyServerManager
 import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
@@ -15,8 +15,8 @@ class NAppRequestContextHolder(
     private val clientChannel: SocketChannel,
     proxyServerManager: ProxyServerManager,
     override val scope: CoroutineScope,
-    override val appId: Int
-) : NAbstractProtocolHandle(proxyServerManager, scope, appId) {
+    private val appId: Int
+) : AbstractProtocolHandle(proxyServerManager, scope) {
 
     /**
      * app要访问的目标服务器和端口
@@ -33,6 +33,10 @@ class NAppRequestContextHolder(
 
     init {
         beforeHandshake()
+    }
+
+    override fun getId(): Int {
+        return appId
     }
 
     override suspend fun forwardRequestToApp(data: ByteArray) {

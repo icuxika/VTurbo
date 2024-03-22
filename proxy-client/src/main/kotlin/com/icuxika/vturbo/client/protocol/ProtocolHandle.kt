@@ -1,6 +1,8 @@
 package com.icuxika.vturbo.client.protocol
 
-interface NProtocolHandle {
+interface ProtocolHandle {
+    fun getId(): Int
+
     /**
      * 预备任务
      */

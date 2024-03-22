@@ -21,7 +21,7 @@ class NProxyClient {
     private val scope = CoroutineScope(Dispatchers.IO + supervisor + CoroutineName("NProxyClient"))
 
     private val readBuffer = ByteBuffer.allocate(1024)
-    private val clientMap = mutableMapOf<SocketChannel, NAppRequestContextHolder>()
+    private val clientMap = hashMapOf<SocketChannel, NAppRequestContextHolder>()
     private val appIdGenerator = AtomicInteger(0)
 
     fun launchServer(port: Int, proxyServerAddress: String) {
@@ -72,7 +72,7 @@ class NProxyClient {
                             val bytesRead = clientChannel.read(readBuffer)
                             if (bytesRead == -1) {
                                 if (attachment == Socks5HandshakeStatus.START_FORWARDING_REQUEST_DATA) {
-                                    LOGGER.info("[${nAppRequestContextHolder.appId}]请求正常结束")
+                                    LOGGER.info("[${nAppRequestContextHolder.getId()}]请求正常结束")
                                     nAppRequestContextHolder.notifyProxyServerRequestHasEnded()
                                 }
                                 nAppRequestContextHolder.shutdownGracefully()
@@ -101,7 +101,7 @@ class NProxyClient {
                                 }
                             }
                         }.onFailure {
-                            LOGGER.info("[${nAppRequestContextHolder.appId}][${attachment.status}]遇到错误[${it.message}]")
+                            LOGGER.info("[${nAppRequestContextHolder.getId()}][${attachment.status}]遇到错误[${it.message}]")
                             nAppRequestContextHolder.notifyProxyServerRequestHasEnded(false)
                             nAppRequestContextHolder.shutdownGracefully()
                             clientChannel.close()

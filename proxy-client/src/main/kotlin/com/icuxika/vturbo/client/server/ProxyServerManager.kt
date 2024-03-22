@@ -1,6 +1,6 @@
 package com.icuxika.vturbo.client.server
 
-import com.icuxika.vturbo.client.protocol.NAbstractProtocolHandle
+import com.icuxika.vturbo.client.protocol.ProtocolHandle
 import com.icuxika.vturbo.commons.extensions.logger
 import com.icuxika.vturbo.commons.extensions.toSpeed
 import com.icuxika.vturbo.commons.tcp.Packet
@@ -31,7 +31,7 @@ class ProxyServerManager(private val proxyServerAddress: String) {
     /**
      * appid <-> app socket
      */
-    private val nProtocolHandle = ConcurrentHashMap<Int, NAbstractProtocolHandle>()
+    private val protocolHandleMap = ConcurrentHashMap<Int, ProtocolHandle>()
 
     /**
      * 接收app的请求数据然后转发给代理服务端
@@ -77,7 +77,7 @@ class ProxyServerManager(private val proxyServerAddress: String) {
                         it
                     )
                     proxyServerSocket.close()
-                    nProtocolHandle.values.forEach { abstractProtocolHandle -> abstractProtocolHandle.shutdownAbnormally() }
+                    protocolHandleMap.values.forEach { abstractProtocolHandle -> abstractProtocolHandle.shutdownAbnormally() }
                 }
             }
         }.onFailure {
@@ -125,20 +125,20 @@ class ProxyServerManager(private val proxyServerAddress: String) {
                         val data = packet.data
                         when (instructionId) {
                             ProxyInstruction.CONNECT.instructionId -> {
-                                nProtocolHandle[appId]?.afterHandshake()
+                                protocolHandleMap[appId]?.afterHandshake()
                             }
 
                             ProxyInstruction.SEND.instructionId -> {
-                                nProtocolHandle[appId]?.forwardRequestToChannelOfApp(data)
+                                protocolHandleMap[appId]?.forwardRequestToChannelOfApp(data)
                             }
 
                             ProxyInstruction.DISCONNECT.instructionId -> {
                                 LOGGER.info("收到代理服务端目标服务器请求结束的信号")
-                                nProtocolHandle[appId]?.shutdownGracefully()
+                                protocolHandleMap[appId]?.shutdownGracefully()
                             }
 
                             ProxyInstruction.EXCEPTION_DISCONNECT.instructionId -> {
-                                nProtocolHandle[appId]?.shutdownAbnormally()
+                                protocolHandleMap[appId]?.shutdownAbnormally()
                             }
 
                             else -> {}
@@ -180,17 +180,17 @@ class ProxyServerManager(private val proxyServerAddress: String) {
     }
 
     /**
-     * 确认app与要访问的目标服务器建立起链接后，注册到[ProxyServerManager.nProtocolHandle]中
+     * 确认app与要访问的目标服务器建立起链接后，注册到[ProxyServerManager.protocolHandleMap]中
      */
-    fun registerProtocolHandle(nAbstractProtocolHandle: NAbstractProtocolHandle) {
-        nProtocolHandle[nAbstractProtocolHandle.appId] = nAbstractProtocolHandle
+    fun registerProtocolHandle(protocolHandle: ProtocolHandle) {
+        protocolHandleMap[protocolHandle.getId()] = protocolHandle
     }
 
     /**
-     * 从[ProxyServerManager.nProtocolHandle]中移除app
+     * 从[ProxyServerManager.protocolHandleMap]中移除app
      */
-    fun unregisterProtocolHandle(nAbstractProtocolHandle: NAbstractProtocolHandle) {
-        nProtocolHandle.remove(nAbstractProtocolHandle.appId)
+    fun unregisterProtocolHandle(protocolHandle: ProtocolHandle) {
+        protocolHandleMap.remove(protocolHandle.getId())
     }
 
     companion object {

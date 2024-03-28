@@ -22,6 +22,8 @@ dependencies {
 
     implementation(project(":commons"))
     implementation(libs.bundles.logback)
+
+    implementation(libs.disruptor)
 }
 
 group = "com.icuxika"

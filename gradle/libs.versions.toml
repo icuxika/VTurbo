@@ -10,6 +10,7 @@ log4j-version = "2.23.0"
 logback-version = "1.5.3"
 
 bcprov-jdk18on-version = "1.77"
+disruptor-version = "4.0.0"
 
 plugin-kotlin-jvm-version = "1.9.22"
 plugin-beryx-runtime-version = "1.13.1"
@@ -40,6 +41,8 @@ logback-core = { group = "ch.qos.logback", name = "logback-core", version.ref = 
 
 # rsa
 bcprov-jdk18on = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bcprov-jdk18on-version" }
+
+disruptor = { group = "com.lmax", name = "disruptor", version.ref = "disruptor-version" }
 
 [bundles]
 log4j = ["log4j-api", "log4j-core", "log4j-slf4j2-impl"]

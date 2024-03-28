@@ -3,18 +3,22 @@ package com.icuxika.vturbo.client.server
 import com.icuxika.vturbo.client.protocol.ProtocolHandle
 import com.icuxika.vturbo.commons.extensions.logger
 import com.icuxika.vturbo.commons.extensions.toSpeed
+import com.icuxika.vturbo.commons.tcp.ByteArrayEvent
 import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.readCompletePacket
+import com.lmax.disruptor.EventHandler
+import com.lmax.disruptor.SleepingWaitStrategy
+import com.lmax.disruptor.dsl.Disruptor
+import com.lmax.disruptor.dsl.ProducerType
+import com.lmax.disruptor.util.DaemonThreadFactory
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.concurrent.scheduleAtFixedRate
-import kotlin.concurrent.thread
 
 /**
  * 管理与代理服务器之间的Socket链接，为app与目标服务器之间的请求数据进行转发
@@ -36,8 +40,8 @@ class ProxyServerManager(private val proxyServerAddress: String) {
     /**
      * 接收app的请求数据然后转发给代理服务端
      */
-    private val queueToProxyServer = ConcurrentLinkedQueue<ByteArray>()
-    private val queueToApp = ConcurrentLinkedQueue<Packet>()
+    private val disruptor =
+        Disruptor({ ByteArrayEvent() }, 1024, DaemonThreadFactory.INSTANCE, ProducerType.SINGLE, SleepingWaitStrategy())
 
     /**
      * 代理服务器->代理客户端 流量统计
@@ -54,8 +58,6 @@ class ProxyServerManager(private val proxyServerAddress: String) {
         createSpeedCalculateTask()
         // 开启线程不断从队列中读取数据转发到代理服务端
         startForwardRequestToProxyServerTask()
-        // 开启线程不断从队列中读取数据转发到app
-        startForwardRequestToAppTask()
 
         runCatching {
             val (proxyServerHostname, proxyServerPort) = proxyServerAddress.split(":")
@@ -63,12 +65,12 @@ class ProxyServerManager(private val proxyServerAddress: String) {
             proxyServerSocket.connect(InetSocketAddress(proxyServerHostname, proxyServerPort.toInt()))
             LOGGER.info("与代理服务器建立连接成功")
 
-            thread {
+            scope.launch {
                 runCatching {
                     while (true) {
                         proxyServerSocket.getInputStream().readCompletePacket(LOGGER).let { packet ->
                             scope.launch { bytesInChannel.send(packet.length) }
-                            queueToApp.offer(packet)
+                            handleResponse(packet)
                         }
                     }
                 }.onFailure {
@@ -86,69 +88,64 @@ class ProxyServerManager(private val proxyServerAddress: String) {
         }
     }
 
+    private suspend fun handleResponse(packet: Packet) {
+        val appId = packet.appId
+        val instructionId = packet.instructionId
+        val length = packet.length
+        val data = packet.data
+        when (instructionId) {
+            ProxyInstruction.CONNECT.instructionId -> {
+                protocolHandleMap[appId]?.afterHandshake()
+            }
+
+            ProxyInstruction.SEND.instructionId -> {
+                protocolHandleMap[appId]?.forwardRequestToChannelOfApp(data)
+            }
+
+            ProxyInstruction.DISCONNECT.instructionId -> {
+                LOGGER.info("收到代理服务端目标服务器请求结束的信号")
+                protocolHandleMap[appId]?.shutdownGracefully()
+            }
+
+            ProxyInstruction.EXCEPTION_DISCONNECT.instructionId -> {
+                protocolHandleMap[appId]?.shutdownAbnormally()
+            }
+
+            else -> {}
+        }
+    }
+
     /**
      * 转发目标服务器的请求数据到代理客户端
      */
     fun forwardRequestToProxyServer(data: ByteArray) {
-        queueToProxyServer.offer(data)
+        runCatching {
+            disruptor.ringBuffer.publishEvent { event, _ -> event.value = data }
+        }.onFailure {
+            LOGGER.error("向代理服务器的disruptor写入数据时发生错误[${it.message}]", it)
+            disruptor.shutdown()
+        }
     }
 
     /**
      * 创建一个线程不断读取队列中的请求数据然后转发给代理服务端
      */
     private fun startForwardRequestToProxyServerTask() {
-        thread {
-            runCatching {
-                while (true) {
-                    queueToProxyServer.poll()?.let {
-                        scope.launch { bytesOutChannel.send(it.size) }
-                        proxyServerSocket.getOutputStream().write(it)
+        disruptor.handleEventsWith(object : EventHandler<ByteArrayEvent> {
+            override fun onEvent(event: ByteArrayEvent?, sequence: Long, endOfBatch: Boolean) {
+                event?.let { e ->
+                    runCatching {
+                        val data = e.value
+                        scope.launch { bytesOutChannel.send(data.size) }
+                        proxyServerSocket.getOutputStream().write(data)
+                    }.onFailure {
+                        LOGGER.error("向代理服务端转发数据遇到了错误[${it.message}]", it)
+                        disruptor.shutdown()
                     }
                 }
-            }.onFailure {
-                LOGGER.error("向代理服务端转发数据遇到了错误[${it.message}]", it)
             }
-        }
-    }
-
-    /**
-     * 创建一个线程不断从队列中读取数据转发到app
-     */
-    private fun startForwardRequestToAppTask() {
-        scope.launch {
-            runCatching {
-                while (true) {
-                    queueToApp.poll()?.let { packet ->
-                        val appId = packet.appId
-                        val instructionId = packet.instructionId
-                        val length = packet.length
-                        val data = packet.data
-                        when (instructionId) {
-                            ProxyInstruction.CONNECT.instructionId -> {
-                                protocolHandleMap[appId]?.afterHandshake()
-                            }
-
-                            ProxyInstruction.SEND.instructionId -> {
-                                protocolHandleMap[appId]?.forwardRequestToChannelOfApp(data)
-                            }
-
-                            ProxyInstruction.DISCONNECT.instructionId -> {
-                                LOGGER.info("收到代理服务端目标服务器请求结束的信号")
-                                protocolHandleMap[appId]?.shutdownGracefully()
-                            }
-
-                            ProxyInstruction.EXCEPTION_DISCONNECT.instructionId -> {
-                                protocolHandleMap[appId]?.shutdownAbnormally()
-                            }
-
-                            else -> {}
-                        }
-                    }
-                }
-            }.onFailure {
-                LOGGER.error("向app转发数据遇到了错误[${it.message}]", it)
-            }
-        }
+        })
+        disruptor.start()
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

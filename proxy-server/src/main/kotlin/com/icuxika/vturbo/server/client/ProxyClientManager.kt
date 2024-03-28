@@ -1,12 +1,14 @@
 package com.icuxika.vturbo.server.client
 
 import com.icuxika.vturbo.commons.extensions.logger
-import com.icuxika.vturbo.commons.tcp.Packet
-import com.icuxika.vturbo.commons.tcp.ProxyInstruction
-import com.icuxika.vturbo.commons.tcp.readCompletePacket
-import com.icuxika.vturbo.commons.tcp.toByteArray
+import com.icuxika.vturbo.commons.tcp.*
 import com.icuxika.vturbo.server.server.ClientPacket
 import com.icuxika.vturbo.server.server.TargetServerManager
+import com.lmax.disruptor.EventHandler
+import com.lmax.disruptor.SleepingWaitStrategy
+import com.lmax.disruptor.dsl.Disruptor
+import com.lmax.disruptor.dsl.ProducerType
+import com.lmax.disruptor.util.DaemonThreadFactory
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,7 +16,6 @@ import kotlinx.coroutines.SupervisorJob
 import java.net.InetAddress
 import java.net.Socket
 import java.nio.ByteBuffer
-import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.concurrent.thread
 
 /**
@@ -31,25 +32,29 @@ class ProxyClientManager(
     /**
      * 接收目标服务器的请求数据然后转发给代理客户端
      */
-    private val queueToProxyClient = ConcurrentLinkedQueue<ByteArray>()
+    private val disruptor =
+        Disruptor({ ByteArrayEvent() }, 1024, DaemonThreadFactory.INSTANCE, ProducerType.SINGLE, SleepingWaitStrategy())
 
     fun startRequestProxy() {
         LOGGER.info("新客户端建立连接，id->$clientId")
         // 注册到 TargetServerManager 以接收目标服务器响应的请求数据
         targetServerManager.registerClientManager(this)
         // 开启线程不断从队列中读取数据转发到代理客户端
-        thread {
-            runCatching {
-                while (true) {
-                    queueToProxyClient.poll()?.let {
-                        client.getOutputStream().write(it)
+        disruptor.handleEventsWith(object : EventHandler<ByteArrayEvent> {
+            override fun onEvent(event: ByteArrayEvent?, sequence: Long, endOfBatch: Boolean) {
+                event?.let { e ->
+                    runCatching {
+                        client.getOutputStream().write(e.value)
+                    }.onFailure {
+                        LOGGER.error("向客户端[$clientId]转发数据遇到了错误[${it.message}]", it)
+                        cleanProxyClientSocket()
+                        disruptor.shutdown()
                     }
                 }
-            }.onFailure {
-                LOGGER.error("向客户端[$clientId]转发数据遇到了错误[${it.message}]", it)
-                cleanProxyClientSocket()
             }
-        }
+        })
+        disruptor.start()
+
         // 主要线程，不断读取客户端的请求数据并处理
         thread {
             runCatching {
@@ -107,7 +112,12 @@ class ProxyClientManager(
      * 转发目标服务器的请求数据到代理客户端
      */
     fun forwardRequestToProxyClient(data: ByteArray) {
-        queueToProxyClient.offer(data)
+        runCatching {
+            disruptor.ringBuffer.publishEvent { event, _ -> event.value = data }
+        }.onFailure {
+            LOGGER.error("向[$clientId]disruptor写入数据时遇到错误[${it.message}]", it)
+            disruptor.shutdown()
+        }
     }
 
     /**
@@ -119,6 +129,7 @@ class ProxyClientManager(
         }
         targetServerManager.closeAllChannelByClientId(clientId)
         targetServerManager.unregisterClientManager(this)
+        disruptor.shutdown()
     }
 
     companion object {

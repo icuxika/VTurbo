@@ -345,6 +345,22 @@
     ]
   },
   {
+    "name": "com.lmax.disruptor.AbstractSequencer",
+    "fields": [
+      {
+        "name": "gatingSequences"
+      }
+    ]
+  },
+  {
+    "name": "com.lmax.disruptor.Sequence",
+    "fields": [
+      {
+        "name": "value"
+      }
+    ]
+  },
+  {
     "name": "com.sun.crypto.provider.AESCipher$General",
     "methods": [
       {

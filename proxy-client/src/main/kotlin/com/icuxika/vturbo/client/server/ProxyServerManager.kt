@@ -8,12 +8,14 @@ import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.readCompletePacket
 import com.lmax.disruptor.EventHandler
+import com.lmax.disruptor.ExceptionHandler
 import com.lmax.disruptor.SleepingWaitStrategy
 import com.lmax.disruptor.dsl.Disruptor
 import com.lmax.disruptor.dsl.ProducerType
 import com.lmax.disruptor.util.DaemonThreadFactory
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.*
@@ -25,7 +27,7 @@ import kotlin.concurrent.scheduleAtFixedRate
  */
 class ProxyServerManager(private val proxyServerAddress: String) {
     private val supervisor = SupervisorJob()
-    private val scope = CoroutineScope(supervisor + Dispatchers.Default + CoroutineName("ProxyServerManager"))
+    private val scope = CoroutineScope(supervisor + Dispatchers.IO + CoroutineName("ProxyServerManager"))
 
     /**
      * 代理服务器Socket
@@ -56,8 +58,8 @@ class ProxyServerManager(private val proxyServerAddress: String) {
     init {
         // 创建计算网络传输速度的定时任务
         createSpeedCalculateTask()
-        // 开启线程不断从队列中读取数据转发到代理服务端
-        startForwardRequestToProxyServerTask()
+        // 配置并启动Disruptor用于转发app的请求数据到代理服务端
+        startForwardRequestToProxyServerDisruptor()
 
         runCatching {
             val (proxyServerHostname, proxyServerPort) = proxyServerAddress.split(":")
@@ -70,16 +72,17 @@ class ProxyServerManager(private val proxyServerAddress: String) {
                     while (true) {
                         proxyServerSocket.getInputStream().readCompletePacket(LOGGER).let { packet ->
                             scope.launch { bytesInChannel.send(packet.length) }
-                            handleResponse(packet)
+                            handlePacketFromProxyServer(packet)
                         }
                     }
                 }.onFailure {
                     LOGGER.error(
-                        "等待读取代理服务端的数据时捕获到异常->[${it.message}]，请检查代理服务器是否还在正常运行",
+                        "读取代理服务端的数据时捕获到异常->[${it.message}]，请检查代理服务器是否还在正常运行",
                         it
                     )
                     proxyServerSocket.close()
-                    protocolHandleMap.values.forEach { abstractProtocolHandle -> abstractProtocolHandle.shutdownAbnormally() }
+                    protocolHandleMap.values.forEach { protocolHandle -> protocolHandle.shutdownAbnormally() }
+                    disruptor.shutdown()
                 }
             }
         }.onFailure {
@@ -88,7 +91,10 @@ class ProxyServerManager(private val proxyServerAddress: String) {
         }
     }
 
-    private suspend fun handleResponse(packet: Packet) {
+    /**
+     * 处理代理服务端转发过来的请求数据
+     */
+    private suspend fun handlePacketFromProxyServer(packet: Packet) {
         val appId = packet.appId
         val instructionId = packet.instructionId
         val length = packet.length
@@ -119,29 +125,42 @@ class ProxyServerManager(private val proxyServerAddress: String) {
      * 转发目标服务器的请求数据到代理客户端
      */
     fun forwardRequestToProxyServer(data: ByteArray) {
-        runCatching {
-            disruptor.ringBuffer.publishEvent { event, _ -> event.value = data }
-        }.onFailure {
-            LOGGER.error("向代理服务器的disruptor写入数据时发生错误[${it.message}]", it)
-            disruptor.shutdown()
-        }
+        disruptor.ringBuffer.publishEvent { event, _ -> event.value = data }
     }
 
     /**
-     * 创建一个线程不断读取队列中的请求数据然后转发给代理服务端
+     * 配置并启动Disruptor用于转发app的请求数据到代理服务端
      */
-    private fun startForwardRequestToProxyServerTask() {
-        disruptor.handleEventsWith(object : EventHandler<ByteArrayEvent> {
-            override fun onEvent(event: ByteArrayEvent?, sequence: Long, endOfBatch: Boolean) {
-                event?.let { e ->
-                    runCatching {
-                        val data = e.value
-                        scope.launch { bytesOutChannel.send(data.size) }
-                        proxyServerSocket.getOutputStream().write(data)
-                    }.onFailure {
-                        LOGGER.error("向代理服务端转发数据遇到了错误[${it.message}]", it)
-                        disruptor.shutdown()
+    private fun startForwardRequestToProxyServerDisruptor() {
+        val eventHandler =
+            EventHandler<ByteArrayEvent> { event, _, _ ->
+                event?.let {
+                    val data = it.value
+                    scope.launch { bytesOutChannel.send(data.size) }
+                    proxyServerSocket.getOutputStream().write(data)
+                }
+            }
+        disruptor.handleEventsWith(eventHandler)
+        disruptor.handleExceptionsFor(eventHandler).with(object : ExceptionHandler<ByteArrayEvent> {
+            override fun handleEventException(ex: Throwable?, sequence: Long, event: ByteArrayEvent?) {
+                ex?.let {
+                    LOGGER.error("Disruptor处理事件时遇到错误[${it.message}]", it)
+                    if (it is IOException) {
+                        // 向代理服务端写入数据时如果发生了的异常，读取线程也会报错并关闭所有连接，然后shutdown Disruptor，此处异常应该很难看到触发
+                        throw RuntimeException(ex)
                     }
+                }
+            }
+
+            override fun handleOnStartException(ex: Throwable?) {
+                ex?.let {
+                    LOGGER.error("Disruptor启动时遇到错误[${it.message}]", it)
+                }
+            }
+
+            override fun handleOnShutdownException(ex: Throwable?) {
+                ex?.let {
+                    LOGGER.error("Disruptor停止时遇到错误[${it.message}]", it)
                 }
             }
         })

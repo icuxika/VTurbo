@@ -32,6 +32,10 @@ data class Packet(val appId: Int, val instructionId: Int, val length: Int, val d
         result = 31 * result + data.contentHashCode()
         return result
     }
+
+    override fun toString(): String {
+        return "Packet(appId=$appId, instructionId=$instructionId, length=$length, data=${String(data)})"
+    }
 }
 
 /**
@@ -63,16 +67,19 @@ fun ByteArray.toPacket(): Packet {
     val appId = byteBuffer.getInt()
     val instructionId = byteBuffer.getInt()
     val length = byteBuffer.getInt()
-    val data = ByteArray(byteBuffer.remaining())
-    byteBuffer.get(data)
-    return Packet(appId, instructionId, length, data)
+    if (length == 0) {
+        return Packet(appId, instructionId, length, byteArrayOf())
+    }
+    val encryptedData = ByteArray(byteBuffer.remaining())
+    byteBuffer.get(encryptedData)
+    val data = EncryptionUtil.aesEnc.decrypt(encryptedData)
+    return Packet(appId, instructionId, data.size, data)
 }
 
 /**
  * 从[InputStream]中读取一个到完整的[Packet]
  */
 fun InputStream.readCompletePacket(logger: Logger): Packet {
-    // TODO 当发生IO异常时候，断开对应的代理客户端与代理服务端之间的连接
     val dataInputStream = DataInputStream(this)
     val appId = dataInputStream.readInt()
     val instructionId = dataInputStream.readInt()

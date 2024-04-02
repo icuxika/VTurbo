@@ -1,6 +1,6 @@
 package com.icuxika.vturbo.client.protocol
 
-import com.icuxika.vturbo.client.server.ProxyServerManager
+import com.icuxika.vturbo.client.server.ProxyServer
 import com.icuxika.vturbo.commons.extensions.logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -8,7 +8,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 
 abstract class AbstractProtocolHandle(
-    private val proxyServerManager: ProxyServerManager,
+    private val proxyServer: ProxyServer,
     open val scope: CoroutineScope
 ) : ProtocolHandle {
 
@@ -17,7 +17,10 @@ abstract class AbstractProtocolHandle(
      */
     private val bytesToAppChannel = Channel<ByteArray>(Channel.UNLIMITED)
 
-    override fun beforeHandshake() {
+    /**
+     * 预备任务
+     */
+    fun beforeHandshake() {
         scope.launch {
             runCatching {
                 for (data in bytesToAppChannel) {
@@ -30,25 +33,31 @@ abstract class AbstractProtocolHandle(
         }
     }
 
-    override fun startHandshake() {
-
+    /**
+     * 向ProxyServerManager注册
+     */
+    fun registerToProxyServerManager() {
+        proxyServer.registerProtocolHandle(this)
     }
 
-    override fun afterHandshake() {
-
+    /**
+     * 从ProxyServerManager中取消注册
+     */
+    private fun unregisterFromProxyServerManager() {
+        proxyServer.unregisterProtocolHandle(this)
     }
 
-    override fun registerToProxyServerManager() {
-        proxyServerManager.registerProtocolHandle(this)
+    /**
+     * 转发请求到代理服务端
+     */
+    fun forwardRequestToServer(data: ByteArray) {
+        proxyServer.forwardRequestToProxyServer(data)
     }
 
-    override fun unregisterFromProxyServerManager() {
-        proxyServerManager.unregisterProtocolHandle(this)
-    }
-
-    override fun forwardRequestToServer(data: ByteArray) {
-        proxyServerManager.forwardRequestToProxyServer(data)
-    }
+    /**
+     * 实际转发请求到app的操作
+     */
+    abstract suspend fun forwardRequestToApp(data: ByteArray)
 
     @OptIn(DelicateCoroutinesApi::class)
     override suspend fun forwardRequestToChannelOfApp(data: ByteArray) {

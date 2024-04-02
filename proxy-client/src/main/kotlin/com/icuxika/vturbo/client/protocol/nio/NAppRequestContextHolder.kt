@@ -1,7 +1,7 @@
 package com.icuxika.vturbo.client.protocol.nio
 
 import com.icuxika.vturbo.client.protocol.AbstractProtocolHandle
-import com.icuxika.vturbo.client.server.ProxyServerManager
+import com.icuxika.vturbo.client.server.ProxyServer
 import com.icuxika.vturbo.commons.tcp.Packet
 import com.icuxika.vturbo.commons.tcp.ProxyInstruction
 import com.icuxika.vturbo.commons.tcp.toByteArray
@@ -13,10 +13,10 @@ import java.nio.channels.SocketChannel
 
 class NAppRequestContextHolder(
     private val clientChannel: SocketChannel,
-    proxyServerManager: ProxyServerManager,
+    proxyServer: ProxyServer,
     override val scope: CoroutineScope,
     private val appId: Int
-) : AbstractProtocolHandle(proxyServerManager, scope) {
+) : AbstractProtocolHandle(proxyServer, scope) {
 
     /**
      * app要访问的目标服务器和端口
@@ -139,11 +139,7 @@ class NAppRequestContextHolder(
         )
     }
 
-    override fun startHandshake() {
-        // do nothing
-    }
-
-    override fun afterHandshake() {
+    override fun targetServerCanBeConnectedCallback() {
         scope.run {
             runCatching {
                 clientChannel.write(

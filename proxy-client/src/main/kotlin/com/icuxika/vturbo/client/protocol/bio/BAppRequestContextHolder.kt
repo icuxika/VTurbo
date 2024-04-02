@@ -1,7 +1,7 @@
 package com.icuxika.vturbo.client.protocol.bio
 
 import com.icuxika.vturbo.client.protocol.AbstractProtocolHandle
-import com.icuxika.vturbo.client.server.ProxyServerManager
+import com.icuxika.vturbo.client.server.ProxyServer
 import com.icuxika.vturbo.commons.extensions.isConnecting
 import com.icuxika.vturbo.commons.extensions.logger
 import com.icuxika.vturbo.commons.tcp.IO_READ_BUFFER_SIZE
@@ -18,10 +18,10 @@ import java.nio.ByteBuffer
 
 class BAppRequestContextHolder(
     private val client: Socket,
-    proxyServerManager: ProxyServerManager,
+    proxyServer: ProxyServer,
     override val scope: CoroutineScope,
     private val appId: Int
-) : AbstractProtocolHandle(proxyServerManager, scope) {
+) : AbstractProtocolHandle(proxyServer, scope) {
     /**
      * app要访问的目标服务器和端口
      */
@@ -55,7 +55,10 @@ class BAppRequestContextHolder(
         }
     }
 
-    override fun startHandshake() {
+    /**
+     * 开始Socks5握手
+     */
+    fun startHandshake() {
         scope.launch {
             val dataInputStream = DataInputStream(client.getInputStream())
             // ----------------------------------------
@@ -120,7 +123,7 @@ class BAppRequestContextHolder(
         }
     }
 
-    override fun afterHandshake() {
+    override fun targetServerCanBeConnectedCallback() {
         scope.launch {
             LOGGER.info("app[$appId]要访问的目标服务器[$remoteAddress:$remotePort]可以连接")
 

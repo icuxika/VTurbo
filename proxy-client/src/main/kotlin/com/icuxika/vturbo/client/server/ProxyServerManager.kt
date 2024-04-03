@@ -28,16 +28,18 @@ class ProxyServerManager(proxyServerAddress: String) : AbstractProxyServer(proxy
      * 代理服务器->代理客户端 流量统计
      */
     private val bytesInChannel = Channel<Int>(Channel.UNLIMITED)
+    private lateinit var bytesInSpeedCalculateTask: TimerTask
 
     /**
      * 代理客户端->代理服务器 流量统计
      */
     private val bytesOutChannel = Channel<Int>(Channel.UNLIMITED)
+    private lateinit var bytesOutSpeedCalculateTask: TimerTask
 
     init {
         initProxyServer()
         // 创建计算网络传输速度的定时任务
-        createSpeedCalculateTask()
+        startSpeedCalculateTask()
     }
 
     override fun initProxyServerImpl(inetSocketAddress: InetSocketAddress) {
@@ -59,13 +61,17 @@ class ProxyServerManager(proxyServerAddress: String) : AbstractProxyServer(proxy
                         it
                     )
                     proxyServerSocket.close()
-                    protocolHandleMap.values.forEach { protocolHandle -> protocolHandle.shutdownAbnormally() }
+                    stopSpeedCalculateTask()
                     shutdownDisruptor()
+                    // 关闭所有已经关联的app连接
+                    protocolHandleMap.values.forEach { protocolHandle -> protocolHandle.shutdownAbnormally() }
                 }
             }
         }.onFailure {
             LOGGER.error("无法与代理服务器建立连接", it)
             proxyServerSocket.close()
+            stopSpeedCalculateTask()
+            shutdownDisruptor()
             throw RuntimeException(it)
         }
     }
@@ -85,7 +91,7 @@ class ProxyServerManager(proxyServerAddress: String) : AbstractProxyServer(proxy
             }
 
             ProxyInstruction.DISCONNECT.instructionId -> {
-                LOGGER.info("收到代理服务端目标服务器请求结束的信号")
+                LOGGER.info("[$appId]收到代理服务端目标服务器请求结束的信号")
                 protocolHandleMap[appId]?.shutdownGracefully()
             }
 
@@ -97,15 +103,22 @@ class ProxyServerManager(proxyServerAddress: String) : AbstractProxyServer(proxy
         }
     }
 
+    /**
+     * 将请求数据转发给代理服务端
+     */
     override fun forwardRequestToProxyServerImpl(data: ByteArray) {
         scope.launch { bytesOutChannel.send(data.size) }
         proxyServerSocket.getOutputStream().write(data)
     }
 
+    /**
+     * 开始计算网络传输速度
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun createSpeedCalculateTask() {
+    fun startSpeedCalculateTask() {
+        LOGGER.info("开始计算网络传输速度")
         // 下载速度定时器
-        Timer().scheduleAtFixedRate(10000, 60000) {
+        bytesInSpeedCalculateTask = Timer().scheduleAtFixedRate(10000, 60000) {
             runBlocking {
                 var allBytesIn = 0
                 while (!bytesInChannel.isEmpty) {
@@ -117,7 +130,7 @@ class ProxyServerManager(proxyServerAddress: String) : AbstractProxyServer(proxy
             }
         }
         // 上传速度定时器
-        Timer().scheduleAtFixedRate(10000, 60000) {
+        bytesOutSpeedCalculateTask = Timer().scheduleAtFixedRate(10000, 60000) {
             runBlocking {
                 var allBytesOut = 0
                 while (!bytesOutChannel.isEmpty) {
@@ -128,6 +141,15 @@ class ProxyServerManager(proxyServerAddress: String) : AbstractProxyServer(proxy
                 LOGGER.debug("上传速度为->${transferSpeedInBytesPerSec.toSpeed()}")
             }
         }
+    }
+
+    /**
+     * 停止计算网络传输速度的定时任务
+     */
+    private fun stopSpeedCalculateTask() {
+        LOGGER.info("停止计算网络传输速度")
+        bytesInSpeedCalculateTask.cancel()
+        bytesOutSpeedCalculateTask.cancel()
     }
 
     companion object {
